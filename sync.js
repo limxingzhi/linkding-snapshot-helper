@@ -1,0 +1,60 @@
+const fs = require("fs");
+const path = require("path");
+const { sanitize } = require("./sanitize");
+
+async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }) {
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const existing = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")));
+
+  const bookmarks = [];
+  let url = `${base}/api/bookmarks/?q=%23${tag}&limit=100`;
+  while (url) {
+    const data = await apiGet(url);
+    bookmarks.push(...data.results);
+    url = data.next || null;
+  }
+
+  console.log(`Syncing ${bookmarks.length} bookmarks...\n`);
+
+  const log = [];
+
+  for (let i = 0; i < bookmarks.length; i++) {
+    const bm = bookmarks[i];
+    const bmId = bm.id;
+    const title = bm.title || "untitled";
+    const safeTitle = sanitize(title);
+    let filename = `${safeTitle}.html`;
+
+    try {
+      const assetsData = await apiGet(`${base}/api/bookmarks/${bmId}/assets/`);
+      const snapshots = assetsData.results.filter((a) => a.asset_type === "snapshot");
+
+      if (snapshots.length === 0) {
+        console.log(`[${i + 1}/${bookmarks.length}] SKIP (no snapshot): ${safeTitle}`);
+        log.push({ status: "skip", title: safeTitle, reason: "no snapshot" });
+        continue;
+      }
+
+      const asset = snapshots[0];
+      const assetId = asset.id;
+
+      let filepath = path.join(snapshotDir, filename);
+      if (existing.has(filename)) {
+        fs.unlinkSync(filepath);
+      }
+
+      await downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath);
+      const size = fs.statSync(filepath).size;
+      console.log(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
+      log.push({ status: "ok", title: safeTitle, filename, size });
+    } catch (e) {
+      console.log(`[${i + 1}/${bookmarks.length}] ERROR: ${safeTitle} - ${e.message}`);
+      log.push({ status: "error", title: safeTitle, error: e.message });
+    }
+  }
+
+  console.log("\nSync complete");
+  return log;
+}
+
+module.exports = { sync };
