@@ -46,7 +46,7 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }
       await downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath);
       const size = fs.statSync(filepath).size;
       console.log(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
-      log.push({ status: "ok", title: safeTitle, filename, size });
+      log.push({ status: "ok", title: safeTitle, filename, size, bookmarkId: bmId, bookmarkUrl: `${base}/bookmarks?q=%23${tag}&details=${bmId}` });
     } catch (e) {
       console.log(`[${i + 1}/${bookmarks.length}] ERROR: ${safeTitle} - ${e.message}`);
       log.push({ status: "error", title: safeTitle, error: e.message });
@@ -54,6 +54,15 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }
   }
 
   console.log("\nSync complete");
+
+  const meta = {};
+  for (const entry of log) {
+    if (entry.bookmarkUrl) {
+      meta[entry.filename] = { id: entry.bookmarkId, url: entry.bookmarkUrl };
+    }
+  }
+  fs.writeFileSync(path.join(snapshotDir, "meta.json"), JSON.stringify(meta, null, 2));
+
   return log;
 }
 

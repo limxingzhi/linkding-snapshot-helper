@@ -12,8 +12,15 @@ function createApp({ snapshotDir, syncFn }) {
 
   app.get("/", (_req, res) => {
     const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
-    const links = files.map((f) => `<li><a href="/${encodeURIComponent(f)}">${f.replace(/\.html$/, "")}</a></li>`).join("\n");
-    res.type("html").send(`<!DOCTYPE html><html><body><h1>Snapshots</h1><a href="/download.zip" style="display:inline-block;margin-bottom:1em;padding:0.5em 1em;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px">Download all as ZIP</a><ul>${links}</ul></body></html>`);
+    const metaPath = path.join(snapshotDir, "meta.json");
+    const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
+    const rows = files.map((f) => {
+      const name = f.replace(/\.html$/, "");
+      const bm = meta[f];
+      const bmLink = bm ? `<a href="${bm.url}" target="_blank">#${bm.id}</a>` : "";
+      return `<tr><td>${bmLink}</td><td><a href="/${encodeURIComponent(f)}">${name}</a></td></tr>`;
+    }).join("\n");
+    res.type("html").send(`<!DOCTYPE html><html><body><h1>Snapshots</h1><a href="/download.zip" style="display:inline-block;margin-bottom:1em;padding:0.5em 1em;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px">Download all as ZIP</a><table style="border-spacing:1em 0"><thead><tr><th style="text-align:left">ID</th><th style="text-align:left">Title</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
   });
 
   app.get("/download.zip", (req, res) => {
