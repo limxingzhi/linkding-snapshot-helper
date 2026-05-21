@@ -4,6 +4,7 @@ const path = require("path");
 const { createApp } = require("../server");
 const { execSync } = require("child_process");
 
+const silentLog = { info: () => {}, warn: () => {}, error: () => {} };
 const FIXTURE_DIR = path.join(__dirname, "__fixtures__", "snapshots");
 const TMP_DIR = path.join(__dirname, "__fixtures__", "zip_tmp");
 
@@ -21,7 +22,7 @@ describe("Express server", () => {
 
   beforeEach(() => {
     const noopSync = async () => [];
-    app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: noopSync });
+    app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: noopSync, logger: silentLog });
   });
 
   it("serves static HTML files from snapshot directory", async () => {

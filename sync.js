@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { sanitize } = require("./sanitize");
 
-async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }) {
+async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", log: logger }) {
   fs.mkdirSync(snapshotDir, { recursive: true });
   const existing = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")));
 
@@ -14,7 +14,7 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }
     url = data.next || null;
   }
 
-  console.log(`Syncing ${bookmarks.length} bookmarks...\n`);
+  logger.info(`Syncing ${bookmarks.length} bookmarks...`);
 
   const log = [];
 
@@ -30,7 +30,7 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }
       const snapshots = assetsData.results.filter((a) => a.asset_type === "snapshot");
 
       if (snapshots.length === 0) {
-        console.log(`[${i + 1}/${bookmarks.length}] SKIP (no snapshot): ${safeTitle}`);
+        logger.info(`[${i + 1}/${bookmarks.length}] SKIP (no snapshot): ${safeTitle}`);
         log.push({ status: "skip", title: safeTitle, reason: "no snapshot" });
         continue;
       }
@@ -45,15 +45,15 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline" }
 
       await downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath);
       const size = fs.statSync(filepath).size;
-      console.log(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
+      logger.info(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
       log.push({ status: "ok", title: safeTitle, filename, size, bookmarkId: bmId, bookmarkUrl: `${base}/bookmarks?q=%23${tag}&details=${bmId}` });
     } catch (e) {
-      console.log(`[${i + 1}/${bookmarks.length}] ERROR: ${safeTitle} - ${e.message}`);
+      logger.error(`[${i + 1}/${bookmarks.length}] ERROR: ${safeTitle} - ${e.message}`);
       log.push({ status: "error", title: safeTitle, error: e.message });
     }
   }
 
-  console.log("\nSync complete");
+  logger.info("Sync complete");
 
   const meta = {};
   for (const entry of log) {

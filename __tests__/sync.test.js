@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { sync } = require("../sync");
 
+const silentLog = { info: () => {}, warn: () => {}, error: () => {} };
 const TMP = path.join(__dirname, "__fixtures__", "sync_tmp");
 
 let linkding;
@@ -72,6 +73,7 @@ function runSync(bookmarks, assets, downloads, opts = {}) {
     apiGet: makeApi(base),
     downloadFile: makeDownloader(),
     tag: opts.tag || "Offline",
+    log: silentLog,
   });
 }
 
@@ -178,6 +180,7 @@ describe("sync", () => {
       snapshotDir: TMP,
       apiGet,
       downloadFile,
+      log: silentLog,
     });
 
     expect(fs.readFileSync(path.join(TMP, "Good.html"), "utf8")).toBe("good content");

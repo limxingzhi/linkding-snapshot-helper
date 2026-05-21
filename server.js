@@ -4,27 +4,38 @@ const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
 const { sync } = require("./sync");
+const { createLogger } = require("./logger");
 
-function createApp({ snapshotDir, syncFn }) {
+function createApp({ snapshotDir, syncFn, logger }) {
   const app = express();
+
+  app.use((req, res, next) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    logger.info(`${req.method} ${req.url} - ${ip}`);
+    next();
+  });
 
   app.use(express.static(snapshotDir));
 
-  app.get("/", (_req, res) => {
+  app.get("/", (req, res) => {
     const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
     const metaPath = path.join(snapshotDir, "meta.json");
     const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
     const rows = files.map((f) => {
       const name = f.replace(/\.html$/, "");
       const bm = meta[f];
-      const bmLink = bm ? `<a href="${bm.url}" target="_blank">#${bm.id}</a>` : "";
-      return `<tr><td>${bmLink}</td><td><a href="/${encodeURIComponent(f)}">${name}</a></td></tr>`;
+      const bmLink = bm
+        ? `<a href="${bm.url}" target="_blank" class="text-blue-400 hover:underline text-sm">#${bm.id}</a>`
+        : "";
+      return `<tr class="border-b border-gray-700 hover:bg-gray-800"><td class="py-1 pr-4 text-left">${bmLink}</td><td class="py-1 text-left"><a href="/${encodeURIComponent(f)}" target="_blank" class="text-blue-400 hover:underline">${name}</a></td></tr>`;
     }).join("\n");
-    res.type("html").send(`<!DOCTYPE html><html><body><h1>Snapshots</h1><a href="/download.zip" style="display:inline-block;margin-bottom:1em;padding:0.5em 1em;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px">Download all as ZIP</a><table style="border-spacing:1em 0"><thead><tr><th style="text-align:left">ID</th><th style="text-align:left">Title</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+    res.type("html").send(`<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Snapshots</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gray-900 text-gray-100 min-h-screen"><div class="max-w-2xl mx-auto px-4 py-8"><h1 class="text-2xl font-bold mb-4">Snapshots</h1><a href="/download.zip" class="inline-block mb-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 no-underline text-sm font-medium">Download all as ZIP</a><div class="overflow-x-auto"><table class="w-full border-collapse"><thead><tr class="border-b-2 border-gray-700"><th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400">ID</th><th class="py-2 text-left text-sm font-semibold text-gray-400">Title</th></tr></thead><tbody>${rows}</tbody></table></div></div></body></html>`);
   });
 
   app.get("/download.zip", (req, res) => {
+    const ip = req.ip || req.connection.remoteAddress;
     const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+    logger.info(`ZIP download requested (${files.length} files) - ${ip}`);
     res.type("application/zip").attachment("snapshots.zip");
     const archive = archiver("zip", { zlib: { level: 9 } });
     archive.pipe(res);
@@ -34,9 +45,16 @@ function createApp({ snapshotDir, syncFn }) {
     archive.finalize();
   });
 
-  app.get("/sync", async (_req, res) => {
-    await syncFn();
-    res.type("text/plain").send("Sync complete\n");
+  app.get("/sync", async (req, res) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    logger.info(`Sync triggered via HTTP - ${ip}`);
+    try {
+      await syncFn();
+      res.type("text/plain").send("Sync complete\n");
+    } catch (e) {
+      logger.error(`Sync failed: ${e.message}`);
+      res.status(500).type("text/plain").send(`Sync failed: ${e.message}\n`);
+    }
   });
 
   return app;
@@ -93,8 +111,11 @@ function main() {
   const snapshotDir = process.env.SNAPSHOT_DIR || "/snapshots";
   const syncOnStart = (process.env.SYNC_ON_START || "true").toLowerCase() === "true";
 
+  const logDir = process.env.LOG_DIR || path.join(snapshotDir, "..", "logs");
+  const logger = createLogger(logDir);
+
   if (!base) {
-    console.error("LINKDING_URL must be set");
+    logger.error("LINKDING_URL must be set");
     process.exit(1);
   }
 
@@ -103,15 +124,16 @@ function main() {
   const apiGet = makeApiGet(base, token);
   const downloadFile = makeDownloadFile(base, token);
 
-  const syncFn = () => sync({ base, snapshotDir, apiGet, downloadFile, tag });
+  const syncFn = () => sync({ base, snapshotDir, apiGet, downloadFile, tag, log: logger });
 
   if (syncOnStart) {
+    logger.info("Sync triggered on startup");
     syncFn();
   }
 
-  const app = createApp({ snapshotDir, syncFn });
+  const app = createApp({ snapshotDir, syncFn, logger });
   app.listen(port, "0.0.0.0", () => {
-    console.log(`Serving snapshots on http://0.0.0.0:${port}/`);
+    logger.info(`Serving snapshots on http://0.0.0.0:${port}/`);
   });
 }
 
