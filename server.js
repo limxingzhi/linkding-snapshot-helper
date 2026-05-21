@@ -6,6 +6,21 @@ const archiver = require("archiver");
 const { sync } = require("./sync");
 const { createLogger } = require("./logger");
 
+function renderIndex(snapshotDir) {
+  const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+  const metaPath = path.join(snapshotDir, "meta.json");
+  const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
+  const rows = files.map((f) => {
+    const name = f.replace(/\.html$/, "");
+    const bm = meta[f];
+    const bmLink = bm
+      ? `<a href="${bm.url}" target="_blank" class="text-blue-400 hover:underline text-sm">#${bm.id}</a>`
+      : "";
+    return `<tr class="border-b border-gray-700 hover:bg-gray-800"><td class="py-1 pr-4 text-left">${bmLink}</td><td class="py-1 text-left"><a href="${f}" target="_blank" class="text-blue-400 hover:underline">${name}</a></td></tr>`;
+  }).join("\n");
+  return `<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Snapshots</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gray-900 text-gray-100 min-h-screen"><div class="max-w-2xl mx-auto px-4 py-8"><h1 class="text-2xl font-bold mb-4">Snapshots</h1><a href="/download.zip" class="inline-block mb-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 no-underline text-sm font-medium">Download all as ZIP</a><div class="overflow-x-auto"><table class="w-full border-collapse"><thead><tr class="border-b-2 border-gray-700"><th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400">ID</th><th class="py-2 text-left text-sm font-semibold text-gray-400">Title</th></tr></thead><tbody>${rows}</tbody></table></div></div></body></html>`;
+}
+
 function createApp({ snapshotDir, syncFn, logger }) {
   const app = express();
 
@@ -18,18 +33,7 @@ function createApp({ snapshotDir, syncFn, logger }) {
   app.use(express.static(snapshotDir));
 
   app.get("/", (req, res) => {
-    const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
-    const metaPath = path.join(snapshotDir, "meta.json");
-    const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
-    const rows = files.map((f) => {
-      const name = f.replace(/\.html$/, "");
-      const bm = meta[f];
-      const bmLink = bm
-        ? `<a href="${bm.url}" target="_blank" class="text-blue-400 hover:underline text-sm">#${bm.id}</a>`
-        : "";
-      return `<tr class="border-b border-gray-700 hover:bg-gray-800"><td class="py-1 pr-4 text-left">${bmLink}</td><td class="py-1 text-left"><a href="/${encodeURIComponent(f)}" target="_blank" class="text-blue-400 hover:underline">${name}</a></td></tr>`;
-    }).join("\n");
-    res.type("html").send(`<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Snapshots</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gray-900 text-gray-100 min-h-screen"><div class="max-w-2xl mx-auto px-4 py-8"><h1 class="text-2xl font-bold mb-4">Snapshots</h1><a href="/download.zip" class="inline-block mb-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 no-underline text-sm font-medium">Download all as ZIP</a><div class="overflow-x-auto"><table class="w-full border-collapse"><thead><tr class="border-b-2 border-gray-700"><th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400">ID</th><th class="py-2 text-left text-sm font-semibold text-gray-400">Title</th></tr></thead><tbody>${rows}</tbody></table></div></div></body></html>`);
+    res.type("html").send(renderIndex(snapshotDir));
   });
 
   app.get("/download.zip", (req, res) => {
@@ -39,6 +43,7 @@ function createApp({ snapshotDir, syncFn, logger }) {
     res.type("application/zip").attachment("snapshots.zip");
     const archive = archiver("zip", { zlib: { level: 9 } });
     archive.pipe(res);
+    archive.append(renderIndex(snapshotDir), { name: "index.html" });
     for (const f of files) {
       archive.file(path.join(snapshotDir, f), { name: f });
     }

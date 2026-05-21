@@ -58,8 +58,9 @@ describe("Express server", () => {
     execSync(`unzip -o ${zipPath} -d ${TMP_DIR}/out`, { stdio: "pipe" });
 
     const extracted = fs.readdirSync(path.join(TMP_DIR, "out")).sort();
-    expect(extracted).toEqual(["test-page.html"]);
+    expect(extracted).toEqual(["index.html", "test-page.html"]);
     expect(fs.readFileSync(path.join(TMP_DIR, "out", "test-page.html"), "utf8")).toBe("<html>hello</html>");
+    expect(fs.readFileSync(path.join(TMP_DIR, "out", "index.html"), "utf8")).toContain("test-page");
 
     fs.rmSync(TMP_DIR, { recursive: true, force: true });
   });
