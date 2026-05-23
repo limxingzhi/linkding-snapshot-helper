@@ -23,9 +23,10 @@ function renderIndex(snapshotDir) {
 
 function createApp({ snapshotDir, syncFn, logger }) {
   const app = express();
+  app.set("trust proxy", true);
 
-  app.use((req, res, next) => {
-    const ip = req.ip || req.connection.remoteAddress;
+  app.use((req, _res, next) => {
+    const ip = req.ip;
     logger.info(`${req.method} ${req.url} - ${ip}`);
     next();
   });
@@ -37,7 +38,7 @@ function createApp({ snapshotDir, syncFn, logger }) {
   });
 
   app.get("/download.zip", (req, res) => {
-    const ip = req.ip || req.connection.remoteAddress;
+    const ip = req.ip;
     const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
     logger.info(`ZIP download requested (${files.length} files) - ${ip}`);
     res.type("application/zip").attachment("snapshots.zip");
@@ -51,7 +52,7 @@ function createApp({ snapshotDir, syncFn, logger }) {
   });
 
   app.get("/sync", async (req, res) => {
-    const ip = req.ip || req.connection.remoteAddress;
+    const ip = req.ip;
     logger.info(`Sync triggered via HTTP - ${ip}`);
     try {
       await syncFn();
