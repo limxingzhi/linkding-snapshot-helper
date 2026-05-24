@@ -35,7 +35,7 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", 
         continue;
       }
 
-      const asset = snapshots[0];
+      const asset = snapshots.at(-1);
       const assetId = asset.id;
 
       let filepath = path.join(snapshotDir, filename);
