@@ -25,7 +25,68 @@ function renderIndex(snapshotDir) {
       : "";
     return `<tr class="border-b border-gray-700 hover:bg-gray-800"><td class="py-1 pr-4 text-left">${bmLink}</td><td class="py-1 pr-4 text-left"><a href="${esc(f)}" target="_blank" class="text-blue-400 hover:underline">${esc(name)}</a></td><td class="py-1 text-left">${tags}</td></tr>`;
   }).join("\n");
-  return `<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Snapshots</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gray-900 text-gray-100 min-h-screen"><div class="max-w-3xl mx-auto px-4 py-8"><h1 class="text-2xl font-bold mb-4">Snapshots</h1><a href="/download.zip" class="inline-block mb-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 no-underline text-sm font-medium">Download all as ZIP</a><div class="overflow-x-auto"><table class="w-full border-collapse" id="snapshots"><thead><tr class="border-b-2 border-gray-700"><th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(0)">ID</th><th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(1)">Title</th><th class="py-2 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(2)">Tags</th></tr></thead><tbody>${rows}</tbody></table></div></div><script>function sortTable(col){const t=document.getElementById("snapshots"),rows=Array.from(t.querySelectorAll("tbody tr"));let d=1;const k="sort-"+col;t.querySelector("thead th:nth-child("+(col+1)+")").classList.toggle(k);t.querySelectorAll("thead th").forEach((h,i)=>{if(i!==col)h.classList.remove("sort-"+i)});if(!t.querySelector("thead th:nth-child("+(col+1)+")").classList.contains(k))d=-1;rows.sort((a,b)=>{let x=a.cells[col].textContent.trim(),y=b.cells[col].textContent.trim();return isNaN(x-y)?x.localeCompare(y):x-y}).forEach(r=>t.querySelector("tbody").appendChild(r));rows.reverse()}</script></body></html>`;
+  return `
+    <!DOCTYPE html>
+    <html lang="en" class="dark">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Snapshots</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+      </head>
+      <body class="bg-gray-900 text-gray-100 min-h-screen">
+        <div class="max-w-3xl mx-auto px-4 py-8">
+          <h1 class="text-2xl font-bold mb-4">Snapshots</h1>
+          <a href="/download.zip" class="inline-block mb-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 no-underline text-sm font-medium">Download all as ZIP</a>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse" id="snapshots">
+              <thead>
+                <tr class="border-b-2 border-gray-700">
+                  <th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(0)">ID</th>
+                  <th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(1)">Title</th>
+                  <th class="py-2 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200">Tags</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+        <script>
+          // sort first column by default
+          let sortedOrderStateIsAsc = true;
+          let currentCol = 0;
+          function sortTable(col) {
+
+            // handle column sort states
+            if (currentCol !== col) {
+              sortedOrderStateIsAsc = false;
+            }
+            sortedOrderStateIsAsc = !sortedOrderStateIsAsc;
+            currentCol = col;
+
+            const t = document.getElementById("snapshots"),
+              rows = Array.from(t.querySelectorAll("tbody tr"));
+            let d = 1;
+            const k = "sort-" + col;
+            t.querySelector("thead th:nth-child(" + (col + 1) + ")").classList.toggle(k);
+            t.querySelectorAll("thead th").forEach((h, i) => {
+              if (i !== col) h.classList.remove("sort-" + i)
+            });
+            if (!t.querySelector("thead th:nth-child(" + (col + 1) + ")").classList.contains(k)) d = -1;
+            rows.sort((a, b) => {
+              let x = a.cells[col].textContent.trim(),
+                y = b.cells[col].textContent.trim();
+              const sortOrder = isNaN(x - y) ? x.localeCompare(y) : x - y
+              return (sortedOrderStateIsAsc) ? sortOrder : -1 * sortOrder;
+            }).forEach(r => t.querySelector("tbody").appendChild(r));
+            rows.reverse()
+          }
+
+          // run sort by first col
+          sortTable(0)
+        </script>
+      </body>
+    </html>`;
 }
 
 function createApp({ snapshotDir, syncFn, logger }) {
