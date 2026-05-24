@@ -51,8 +51,8 @@ function makeDownloader() {
   return async function downloadFile(url, dest) {
     const dlMatch = url.match(/\/api\/bookmarks\/(\d+)\/assets\/(\d+)\/download\//);
     if (dlMatch) {
-      const bmId = parseInt(dlMatch[1], 10);
-      const content = linkding.downloads[bmId];
+      const assetId = parseInt(dlMatch[2], 10);
+      const content = linkding.downloads[assetId];
       if (content) {
         fs.writeFileSync(dest, content);
         return;
@@ -81,7 +81,7 @@ describe("sync", () => {
   it("downloads a snapshot for a bookmark with an asset", async () => {
     const bookmarks = [{ id: 1, title: "My Page" }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
-    const downloads = { 1: "<html>content</html>" };
+    const downloads = { 10: "<html>content</html>" };
 
     await runSync(bookmarks, assets, downloads);
 
@@ -100,15 +100,15 @@ describe("sync", () => {
     expect(files).toHaveLength(0);
   });
 
-  it("replaces existing file when filename already exists on disk", async () => {
+  it("skips download when filename already exists on disk", async () => {
     fs.writeFileSync(path.join(TMP, "Page.html"), "old");
     const bookmarks = [{ id: 5, title: "Page" }];
     const assets = { 5: [{ id: 10, asset_type: "snapshot" }] };
-    const downloads = { 5: "new content" };
+    const downloads = { 10: "new content" };
 
     await runSync(bookmarks, assets, downloads);
 
-    expect(fs.readFileSync(path.join(TMP, "Page.html"), "utf8")).toBe("new content");
+    expect(fs.readFileSync(path.join(TMP, "Page.html"), "utf8")).toBe("old");
     const htmlFiles = fs.readdirSync(TMP).filter((f) => f.endsWith(".html"));
     expect(htmlFiles).toHaveLength(1);
   });
@@ -125,9 +125,9 @@ describe("sync", () => {
       3: [{ id: 30, asset_type: "snapshot" }],
     };
     const downloads = {
-      1: "alpha",
-      2: "beta",
-      3: "gamma",
+      10: "alpha",
+      20: "beta",
+      30: "gamma",
     };
 
     await runSync(bookmarks, assets, downloads);
@@ -140,7 +140,7 @@ describe("sync", () => {
   it("uses sanitized title for filenames", async () => {
     const bookmarks = [{ id: 1, title: 'What: A "Great" Page?' }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
-    const downloads = { 1: "content" };
+    const downloads = { 10: "content" };
 
     await runSync(bookmarks, assets, downloads);
 
@@ -189,11 +189,46 @@ describe("sync", () => {
   it("returns log of all operations", async () => {
     const bookmarks = [{ id: 1, title: "Page" }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
-    const downloads = { 1: "content" };
+    const downloads = { 10: "content" };
 
     const log = await runSync(bookmarks, assets, downloads);
 
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ status: "ok", title: "Page" });
+  });
+
+  it("downloads the newest snapshot when multiple exist", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = {
+      1: [
+        { id: 10, asset_type: "snapshot", created_at: "2025-01-01T00:00:00Z" },
+        { id: 20, asset_type: "snapshot", created_at: "2025-06-15T00:00:00Z" },
+        { id: 30, asset_type: "snapshot", created_at: "2025-03-01T00:00:00Z" },
+      ],
+    };
+    const downloads = { 10: "old", 20: "newest", 30: "middle" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    expect(fs.readFileSync(path.join(TMP, "Page.html"), "utf8")).toBe("newest");
+  });
+
+  it("preserves metadata for skipped files on re-sync", async () => {
+    const bookmarks = [{ id: 1, title: "Page", tag_names: ["tag1"] }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot", created_at: "2025-01-01T00:00:00Z" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const metaPath = path.join(TMP, "meta.json");
+    const meta1 = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    expect(meta1["Page.html"]).toBeDefined();
+    expect(meta1["Page.html"].tags).toEqual(["tag1"]);
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta2 = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    expect(meta2["Page.html"]).toBeDefined();
+    expect(meta2["Page.html"].tags).toEqual(["tag1"]);
   });
 });

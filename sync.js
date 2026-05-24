@@ -35,12 +35,24 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", 
         continue;
       }
 
-      const asset = snapshots.at(-1);
+      const asset = snapshots.reduce((a, b) =>
+        (a.created_at || "") > (b.created_at || "") ? a : b
+      );
       const assetId = asset.id;
 
       let filepath = path.join(snapshotDir, filename);
       if (existing.has(filename)) {
-        fs.unlinkSync(filepath);
+        logger.info(`[${i + 1}/${bookmarks.length}] SKIP (already exists): ${safeTitle}`);
+        log.push({
+          status: "skip",
+          title: safeTitle,
+          reason: "already exists",
+          filename,
+          bookmarkId: bmId,
+          tags: bm.tag_names || [],
+          bookmarkUrl: `${base}/bookmarks?q=%23${tag}&details=${bmId}`,
+        });
+        continue;
       }
 
       await downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath);

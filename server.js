@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const helmet = require("helmet");
 const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
@@ -7,7 +8,7 @@ const { sync } = require("./sync");
 const { createLogger } = require("./logger");
 
 function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function renderIndex(snapshotDir) {
@@ -18,7 +19,7 @@ function renderIndex(snapshotDir) {
     const name = f.replace(/\.html$/, "");
     const bm = meta[f];
     const bmLink = bm
-      ? `<a href="${bm.url}" target="_blank" class="text-blue-400 hover:underline text-sm">#${bm.id}</a>`
+      ? `<a href="${esc(bm.url)}" target="_blank" class="text-blue-400 hover:underline text-sm">#${bm.id}</a>`
       : "";
     const tags = bm && bm.tags && bm.tags.length
       ? bm.tags.map((t) => `<span class="inline-block text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 mr-1">${esc(t)}</span>`).join("")
@@ -92,6 +93,7 @@ function renderIndex(snapshotDir) {
 function createApp({ snapshotDir, syncFn, logger }) {
   const app = express();
   app.set("trust proxy", true);
+  app.use(helmet({ contentSecurityPolicy: false }));
 
   app.use((req, _res, next) => {
     const ip = req.ip;
@@ -99,7 +101,13 @@ function createApp({ snapshotDir, syncFn, logger }) {
     next();
   });
 
-  app.use(express.static(snapshotDir));
+  app.use((req, res, next) => {
+    if (req.path.endsWith(".html")) {
+      express.static(snapshotDir)(req, res, next);
+    } else {
+      next();
+    }
+  });
 
   app.get("/", (_req, res) => {
     res.type("html").send(renderIndex(snapshotDir));
@@ -111,6 +119,12 @@ function createApp({ snapshotDir, syncFn, logger }) {
     logger.info(`ZIP download requested (${files.length} files) - ${ip}`);
     res.type("application/zip").attachment("snapshots.zip");
     const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
+      logger.error(`ZIP archive error: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ error: { message: "ZIP creation failed" } });
+      }
+    });
     archive.pipe(res);
     archive.append(renderIndex(snapshotDir), { name: "index.html" });
     for (const f of files) {
@@ -127,8 +141,13 @@ function createApp({ snapshotDir, syncFn, logger }) {
       res.redirect("/");
     } catch (e) {
       logger.error(`Sync failed: ${e.message}`);
-      res.status(500).type("text/plain").send(`Sync failed: ${e.message}\n`);
+      res.status(500).type("text/plain").send("Sync failed. Check server logs for details.\n");
     }
+  });
+
+  app.use((err, req, res, next) => {
+    logger.error(`Unhandled error: ${err.message}`);
+    res.status(err.status || 500).json({ error: { message: "Internal server error" } });
   });
 
   return app;
@@ -202,7 +221,7 @@ function main() {
 
   if (syncOnStart) {
     logger.info("Sync triggered on startup");
-    syncFn();
+    syncFn().catch((e) => logger.error(`Startup sync failed: ${e.message}`));
   }
 
   const app = createApp({ snapshotDir, syncFn, logger });

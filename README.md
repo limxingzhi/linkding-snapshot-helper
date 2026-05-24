@@ -1,4 +1,4 @@
-# linkding-offline
+# linkding-snapshot-helper
 
 A tiny web server that syncs [SingleFile](https://github.com/gildas-lormeau/SingleFile) snapshots from your [Linkding](https://github.com/sissbruecker/linkding) bookmarks and serves them as static files.
 
@@ -9,7 +9,7 @@ Built for offline reading: tag bookmarks in Linkding, let this pull the snapshot
 ```bash
 cp .env.example .env
 # edit .env with your Linkding URL and API token
-python server.py
+npm start
 ```
 
 Open `http://localhost:8080` to browse your snapshots.
@@ -32,23 +32,24 @@ All config is via environment variables (set them in `.env`):
 | Endpoint | Description |
 |---|---|
 | `GET /` | Directory listing of all downloaded snapshots |
-| `GET /<filename>` | Serve a specific snapshot |
+| `GET /<filename>` | Serve a specific snapshot (`.html` only) |
 | `GET /sync` | Re-sync from Linkding (skips already-downloaded files) |
 
 ## How it works
 
 1. On startup (unless `SYNC_ON_START=false`), queries the Linkding API for all bookmarks tagged `#Offline`
 2. For each bookmark, fetches its assets and filters for `asset_type == "snapshot"` (SingleFile uploads)
-3. Downloads each snapshot as `<title>.html`, skipping files that already exist
-4. Serves the downloaded files via Python's built-in HTTP server
+3. When multiple snapshots exist, selects the newest one by `created_at`
+4. Downloads each snapshot as `<title>.html`, skipping files that already exist
+5. Serves the downloaded files via Express
 
-Syncs are idempotent: running `/sync` again only downloads new or changed snapshots.
+Syncs are idempotent: running `/sync` again only downloads new snapshots.
 
 ## Requirements
 
 - A Linkding instance with the [SingleFile extension](https://github.com/gildas-lormeau/SingleFile) configured to upload snapshots
-- Python 3.10+
-- No external dependencies (stdlib only)
+- Node.js 18+
+- Install dependencies: `npm install`
 
 ## License
 
