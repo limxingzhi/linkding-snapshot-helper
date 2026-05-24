@@ -76,10 +76,10 @@ function renderIndex(snapshotDir) {
             rows.sort((a, b) => {
               let x = a.cells[col].textContent.trim(),
                 y = b.cells[col].textContent.trim();
-              const sortOrder = isNaN(x - y) ? x.localeCompare(y) : x - y
-              return (sortedOrderStateIsAsc) ? sortOrder : -1 * sortOrder;
-            }).forEach(r => t.querySelector("tbody").appendChild(r));
-            rows.reverse()
+              const sortOrder = isNaN(x - y) ? x.localeCompare(y) : x - y;
+            return sortedOrderStateIsAsc ? sortOrder : -1 * sortOrder;
+          });
+          rows.forEach(r => t.querySelector("tbody").appendChild(r));
           }
 
           // run sort by first col
@@ -101,7 +101,7 @@ function createApp({ snapshotDir, syncFn, logger }) {
 
   app.use(express.static(snapshotDir));
 
-  app.get("/", (req, res) => {
+  app.get("/", (_req, res) => {
     res.type("html").send(renderIndex(snapshotDir));
   });
 

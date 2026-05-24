@@ -1,5 +1,6 @@
 *.html
 .env
-__pycache__/
 node_modules/
 coverage/
+meta.json
+server.log
