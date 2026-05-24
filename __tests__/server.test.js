@@ -36,11 +36,10 @@ describe("Express server", () => {
     expect(res.status).toBe(404);
   });
 
-  it("GET /sync triggers sync and returns Sync complete", async () => {
+  it("GET /sync triggers sync and redirects to /", async () => {
     const res = await request(app).get("/sync");
-    expect(res.status).toBe(200);
-    expect(res.text).toBe("Sync complete\n");
-    expect(res.headers["content-type"]).toMatch(/text\/plain/);
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/");
   });
 
   it("GET /download.zip returns a zip containing all snapshots", async () => {
