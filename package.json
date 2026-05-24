@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "jest --verbose"
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "repository": {
     "type": "git",
@@ -25,7 +26,7 @@
     "express": "^5.2.1"
   },
   "devDependencies": {
-    "jest": "^30.4.2",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "vitest": "^3.2.4"
   }
 }
