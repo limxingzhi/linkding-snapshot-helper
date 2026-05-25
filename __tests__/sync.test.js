@@ -85,7 +85,7 @@ describe("sync", () => {
 
     await runSync(bookmarks, assets, downloads);
 
-    const expectedFile = path.join(TMP, "My Page.html");
+    const expectedFile = path.join(TMP, "My Page-1.html");
     expect(fs.existsSync(expectedFile)).toBe(true);
     expect(fs.readFileSync(expectedFile, "utf8")).toBe("<html>content</html>");
   });
@@ -101,14 +101,14 @@ describe("sync", () => {
   });
 
   it("skips download when filename already exists on disk", async () => {
-    fs.writeFileSync(path.join(TMP, "Page.html"), "old");
+    fs.writeFileSync(path.join(TMP, "Page-5.html"), "old");
     const bookmarks = [{ id: 5, title: "Page" }];
     const assets = { 5: [{ id: 10, asset_type: "snapshot" }] };
     const downloads = { 10: "new content" };
 
     await runSync(bookmarks, assets, downloads);
 
-    expect(fs.readFileSync(path.join(TMP, "Page.html"), "utf8")).toBe("old");
+    expect(fs.readFileSync(path.join(TMP, "Page-5.html"), "utf8")).toBe("old");
     const htmlFiles = fs.readdirSync(TMP).filter((f) => f.endsWith(".html"));
     expect(htmlFiles).toHaveLength(1);
   });
@@ -132,9 +132,9 @@ describe("sync", () => {
 
     await runSync(bookmarks, assets, downloads);
 
-    expect(fs.readFileSync(path.join(TMP, "Alpha.html"), "utf8")).toBe("alpha");
-    expect(fs.readFileSync(path.join(TMP, "Beta.html"), "utf8")).toBe("beta");
-    expect(fs.readFileSync(path.join(TMP, "Gamma.html"), "utf8")).toBe("gamma");
+    expect(fs.readFileSync(path.join(TMP, "Alpha-1.html"), "utf8")).toBe("alpha");
+    expect(fs.readFileSync(path.join(TMP, "Beta-2.html"), "utf8")).toBe("beta");
+    expect(fs.readFileSync(path.join(TMP, "Gamma-3.html"), "utf8")).toBe("gamma");
   });
 
   it("uses sanitized title for filenames", async () => {
@@ -144,7 +144,7 @@ describe("sync", () => {
 
     await runSync(bookmarks, assets, downloads);
 
-    const expectedFile = path.join(TMP, "What A Great Page.html");
+    const expectedFile = path.join(TMP, "What A Great Page-1.html");
     expect(fs.existsSync(expectedFile)).toBe(true);
   });
 
@@ -183,7 +183,7 @@ describe("sync", () => {
       log: silentLog,
     });
 
-    expect(fs.readFileSync(path.join(TMP, "Good.html"), "utf8")).toBe("good content");
+    expect(fs.readFileSync(path.join(TMP, "Good-2.html"), "utf8")).toBe("good content");
   });
 
   it("returns log of all operations", async () => {
@@ -210,7 +210,7 @@ describe("sync", () => {
 
     await runSync(bookmarks, assets, downloads);
 
-    expect(fs.readFileSync(path.join(TMP, "Page.html"), "utf8")).toBe("newest");
+    expect(fs.readFileSync(path.join(TMP, "Page-1.html"), "utf8")).toBe("newest");
   });
 
   it("preserves metadata for skipped files on re-sync", async () => {
@@ -222,13 +222,13 @@ describe("sync", () => {
 
     const metaPath = path.join(TMP, "meta.json");
     const meta1 = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-    expect(meta1["Page.html"]).toBeDefined();
-    expect(meta1["Page.html"].tags).toEqual(["tag1"]);
+    expect(meta1["Page-1.html"]).toBeDefined();
+    expect(meta1["Page-1.html"].tags).toEqual(["tag1"]);
 
     await runSync(bookmarks, assets, downloads);
 
     const meta2 = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-    expect(meta2["Page.html"]).toBeDefined();
-    expect(meta2["Page.html"].tags).toEqual(["tag1"]);
+    expect(meta2["Page-1.html"]).toBeDefined();
+    expect(meta2["Page-1.html"].tags).toEqual(["tag1"]);
   });
 });

@@ -17,7 +17,7 @@ function renderIndex(snapshotDir) {
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
   const rows = files.map((f, i) => {
-    const name = f.replace(/\.html$/, "");
+    const name = f.replace(/-\d+\.html$/, "");
     const bm = meta[f];
     const bmLink = bm
       ? `<a href="${esc(bm.url)}" target="_blank" style="color:${M.green}">#${bm.id}</a>`
@@ -44,7 +44,7 @@ function renderIndex(snapshotDir) {
     .btn { display:inline-block;padding:6px 14px;border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;border:none;transition:opacity .15s; }
     .btn:hover { opacity:0.85;text-decoration:none; }
     table { width:100%;border-collapse:collapse; }
-    thead th { padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${M.comment};border-bottom:2px solid ${M.comment};font-weight:500; }
+    thead th { padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${M.comment};border-bottom:2px solid ${M.comment};font-weight:500;cursor:pointer; }
     tbody tr:hover { background:${M.bgLight}; }
   </style>
 </head>

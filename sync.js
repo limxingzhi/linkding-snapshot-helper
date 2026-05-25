@@ -23,7 +23,7 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", 
     const bmId = bm.id;
     const title = bm.title || "untitled";
     const safeTitle = sanitize(title);
-    let filename = `${safeTitle}.html`;
+    let filename = `${safeTitle}-${bmId}.html`;
 
     try {
       const assetsData = await apiGet(`${base}/api/bookmarks/${bmId}/assets/`);
