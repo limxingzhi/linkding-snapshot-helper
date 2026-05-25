@@ -16,7 +16,7 @@ function renderIndex(snapshotDir) {
   const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
-  const rows = files.map((f, i) => {
+  const rows = files.map((f) => {
     const name = f.replace(/-\d+\.html$/, "");
     const bm = meta[f];
     const bmLink = bm
@@ -25,8 +25,7 @@ function renderIndex(snapshotDir) {
     const tags = bm && bm.tags && bm.tags.length
       ? bm.tags.map((t) => `<span style="display:inline-block;font-family:'Fira Code',monospace;font-size:11px;padding:2px 8px;border-radius:3px;margin-right:4px;background:${M.bgLighter};color:${M.yellow}">${esc(t)}</span>`).join("")
       : "";
-    const lineNum = String(i + 1).padStart(3, " ");
-    return `<tr style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 12px 6px 16px;color:${M.comment};font-family:'Fira Code',monospace;font-size:13px;text-align:right;user-select:none;width:50px">${lineNum}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
+    return `<tr style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -60,7 +59,7 @@ function renderIndex(snapshotDir) {
     <div style="overflow-x:auto">
       <table id="snapshots">
         <thead><tr>
-          <th style="width:50px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)">Title</th><th>Tags</th>
+          <th class="sort" onclick="sortTable(0)">ID</th><th class="sort" onclick="sortTable(1)">Title</th><th>Tags</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -82,7 +81,7 @@ function renderIndex(snapshotDir) {
       });
       rows.forEach(r => t.querySelector("tbody").appendChild(r));
     }
-    sortTable(1);
+    sortTable(0);
   </script>
 </body>
 </html>`;
