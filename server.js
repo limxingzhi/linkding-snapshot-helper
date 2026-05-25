@@ -12,82 +12,80 @@ function esc(s) {
 }
 
 function renderIndex(snapshotDir) {
+  const M = { bg:"#272822", bgLight:"#3e3d32", bgLighter:"#49483e", fg:"#f8f8f2", comment:"#75715e", yellow:"#e6db74", orange:"#fd971f", green:"#a6e22e", magenta:"#ae81ff", blue:"#66d9ef" };
   const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
-  const rows = files.map((f) => {
+  const rows = files.map((f, i) => {
     const name = f.replace(/\.html$/, "");
     const bm = meta[f];
     const bmLink = bm
-      ? `<a href="${esc(bm.url)}" target="_blank" class="text-blue-400 hover:underline text-sm">#${bm.id}</a>`
+      ? `<a href="${esc(bm.url)}" target="_blank" style="color:${M.green}">#${bm.id}</a>`
       : "";
     const tags = bm && bm.tags && bm.tags.length
-      ? bm.tags.map((t) => `<span class="inline-block text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 mr-1">${esc(t)}</span>`).join("")
+      ? bm.tags.map((t) => `<span style="display:inline-block;font-family:'Fira Code',monospace;font-size:11px;padding:2px 8px;border-radius:3px;margin-right:4px;background:${M.bgLighter};color:${M.yellow}">${esc(t)}</span>`).join("")
       : "";
-    return `<tr class="border-b border-gray-700 hover:bg-gray-800"><td class="py-1 pr-4 text-left">${bmLink}</td><td class="py-1 pr-4 text-left"><a href="${esc(f)}" target="_blank" class="text-blue-400 hover:underline">${esc(name)}</a></td><td class="py-1 text-left">${tags}</td></tr>`;
+    const lineNum = String(i + 1).padStart(3, " ");
+    return `<tr style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 12px 6px 16px;color:${M.comment};font-family:'Fira Code',monospace;font-size:13px;text-align:right;user-select:none;width:50px">${lineNum}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
   }).join("\n");
-  return `
-    <!DOCTYPE html>
-    <html lang="en" class="dark">
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Snapshots</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-      </head>
-      <body class="bg-gray-900 text-gray-100 min-h-screen">
-        <div class="max-w-3xl mx-auto px-4 py-8">
-          <h1 class="text-2xl font-bold mb-4">Snapshots</h1>
-          <a href="/download.zip" class="inline-block mb-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 no-underline text-sm font-medium">Download all as ZIP</a>
-          <div class="overflow-x-auto">
-            <table class="w-full border-collapse" id="snapshots">
-              <thead>
-                <tr class="border-b-2 border-gray-700">
-                  <th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(0)">ID</th>
-                  <th class="py-2 pr-4 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200" onclick="sortTable(1)">Title</th>
-                  <th class="py-2 text-left text-sm font-semibold text-gray-400 cursor-pointer select-none hover:text-gray-200">Tags</th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </div>
-        <script>
-          // sort first column by default
-          let sortedOrderStateIsAsc = true;
-          let currentCol = 0;
-          function sortTable(col) {
-
-            // handle column sort states
-            if (currentCol !== col) {
-              sortedOrderStateIsAsc = false;
-            }
-            sortedOrderStateIsAsc = !sortedOrderStateIsAsc;
-            currentCol = col;
-
-            const t = document.getElementById("snapshots"),
-              rows = Array.from(t.querySelectorAll("tbody tr"));
-            let d = 1;
-            const k = "sort-" + col;
-            t.querySelector("thead th:nth-child(" + (col + 1) + ")").classList.toggle(k);
-            t.querySelectorAll("thead th").forEach((h, i) => {
-              if (i !== col) h.classList.remove("sort-" + i)
-            });
-            if (!t.querySelector("thead th:nth-child(" + (col + 1) + ")").classList.contains(k)) d = -1;
-            rows.sort((a, b) => {
-              let x = a.cells[col].textContent.trim(),
-                y = b.cells[col].textContent.trim();
-              const sortOrder = isNaN(x - y) ? x.localeCompare(y) : x - y;
-            return sortedOrderStateIsAsc ? sortOrder : -1 * sortOrder;
-          });
-          rows.forEach(r => t.querySelector("tbody").appendChild(r));
-          }
-
-          // run sort by first col
-          sortTable(0)
-        </script>
-      </body>
-    </html>`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Snapshots</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing:border-box;margin:0;padding:0; }
+    body { background:${M.bg};color:${M.fg};font-family:'Inter',sans-serif;min-height:100vh; }
+    a { text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .btn { display:inline-block;padding:6px 14px;border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;border:none;transition:opacity .15s; }
+    .btn:hover { opacity:0.85;text-decoration:none; }
+    table { width:100%;border-collapse:collapse; }
+    thead th { padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${M.comment};border-bottom:2px solid ${M.comment};font-weight:500; }
+    tbody tr:hover { background:${M.bgLight}; }
+  </style>
+</head>
+<body>
+  <div style="max-width:960px;margin:0 auto;padding:32px 24px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <h1 style="font-size:22px;font-weight:700;color:${M.fg}">Snapshots</h1>
+      <span style="color:${M.comment};font-size:13px">${files.length}</span>
+      <div style="flex:1"></div>
+      <a href="/download.zip" class="btn" style="background:${M.green};color:${M.bg}">Download ZIP</a>
+      <a href="/sync" class="btn" style="background:${M.magenta};color:${M.bg}">Sync</a>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="snapshots">
+        <thead><tr>
+          <th style="width:50px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)">Title</th><th>Tags</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>
+  <script>
+    let sortedOrderStateIsAsc = true;
+    let currentCol = 1;
+    function sortTable(col) {
+      if (currentCol !== col) { sortedOrderStateIsAsc = false; }
+      sortedOrderStateIsAsc = !sortedOrderStateIsAsc;
+      currentCol = col;
+      const t = document.getElementById("snapshots"),
+        rows = Array.from(t.querySelectorAll("tbody tr"));
+      rows.sort((a, b) => {
+        let x = a.cells[col].textContent.trim(), y = b.cells[col].textContent.trim();
+        const sortOrder = isNaN(x - y) ? x.localeCompare(y) : x - y;
+        return sortedOrderStateIsAsc ? sortOrder : -1 * sortOrder;
+      });
+      rows.forEach(r => t.querySelector("tbody").appendChild(r));
+    }
+    sortTable(1);
+  </script>
+</body>
+</html>`;
 }
 
 function createApp({ snapshotDir, syncFn, logger }) {
