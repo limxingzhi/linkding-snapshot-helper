@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
 const { sync } = require("./sync");
+const { clean } = require("./sync");
 const { createLogger } = require("./logger");
 
 function esc(s) {
@@ -55,6 +56,7 @@ function renderIndex(snapshotDir) {
       <div style="flex:1"></div>
       <a href="/download.zip" class="btn" style="background:${M.green};color:${M.bg}">Download ZIP</a>
       <a href="/sync" class="btn" style="background:${M.magenta};color:${M.bg}">Sync</a>
+      <a href="/clean" class="btn" style="background:${M.blue};color:${M.bg}">Clean</a>
     </div>
     <div style="overflow-x:auto">
       <table id="snapshots">
@@ -87,7 +89,7 @@ function renderIndex(snapshotDir) {
 </html>`;
 }
 
-function createApp({ snapshotDir, syncFn, logger }) {
+function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, logger }) {
   const app = express();
   app.set("trust proxy", true);
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -139,6 +141,18 @@ function createApp({ snapshotDir, syncFn, logger }) {
     } catch (e) {
       logger.error(`Sync failed: ${e.message}`);
       res.status(500).type("text/plain").send("Sync failed. Check server logs for details.\n");
+    }
+  });
+
+  app.get("/clean", async (req, res) => {
+    const ip = req.ip;
+    logger.info(`Clean triggered via HTTP - ${ip}`);
+    try {
+      await cleanFn();
+      res.redirect("/");
+    } catch (e) {
+      logger.error(`Clean failed: ${e.message}`);
+      res.status(500).type("text/plain").send("Clean failed. Check server logs for details.\n");
     }
   });
 
@@ -221,7 +235,9 @@ function main() {
     syncFn().catch((e) => logger.error(`Startup sync failed: ${e.message}`));
   }
 
-  const app = createApp({ snapshotDir, syncFn, logger });
+  const cleanFn = () => clean({ base, snapshotDir, apiGet, tag, log: logger });
+
+  const app = createApp({ snapshotDir, syncFn, cleanFn, logger });
   app.listen(port, "0.0.0.0", () => {
     logger.info(`Serving snapshots on http://0.0.0.0:${port}/`);
   });

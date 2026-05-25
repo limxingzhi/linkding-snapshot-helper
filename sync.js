@@ -78,4 +78,41 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", 
   return log;
 }
 
-module.exports = { sync };
+async function clean({ base, snapshotDir, apiGet, tag = "Offline", log: logger }) {
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const existing = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html"));
+
+  const bookmarks = [];
+  let url = `${base}/api/bookmarks/?q=%23${tag}&limit=100`;
+  while (url) {
+    const data = await apiGet(url);
+    bookmarks.push(...data.results);
+    url = data.next || null;
+  }
+
+  const activeIds = new Set(bookmarks.map((bm) => String(bm.id)));
+  const removed = [];
+
+  for (const f of existing) {
+    const match = f.match(/-(\d+)\.html$/);
+    if (!match || !activeIds.has(match[1])) {
+      fs.unlinkSync(path.join(snapshotDir, f));
+      removed.push(f);
+      logger.info(`CLEAN: removed ${f}`);
+    }
+  }
+
+  const metaPath = path.join(snapshotDir, "meta.json");
+  if (fs.existsSync(metaPath)) {
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    for (const f of removed) {
+      delete meta[f];
+    }
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  }
+
+  logger.info(`Clean complete: ${removed.length} file(s) removed`);
+  return { removed };
+}
+
+module.exports = { sync, clean };

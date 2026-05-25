@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { sync } = require("../sync");
+const { sync, clean } = require("../sync");
 
 const silentLog = { info: () => {}, warn: () => {}, error: () => {} };
 const TMP = path.join(__dirname, "__fixtures__", "sync_tmp");
@@ -230,5 +230,67 @@ describe("sync", () => {
     const meta2 = JSON.parse(fs.readFileSync(metaPath, "utf8"));
     expect(meta2["Page-1.html"]).toBeDefined();
     expect(meta2["Page-1.html"].tags).toEqual(["tag1"]);
+  });
+});
+
+describe("clean", () => {
+  const base = "https://linkding.test";
+
+  function runClean(bookmarks) {
+    linkding.bookmarks = bookmarks || [];
+    return clean({
+      base,
+      snapshotDir: TMP,
+      apiGet: makeApi(base),
+      tag: "Offline",
+      log: silentLog,
+    });
+  }
+
+  it("removes files with no matching bookmark", async () => {
+    fs.writeFileSync(path.join(TMP, "Orphan-99.html"), "<html>old</html>");
+    fs.writeFileSync(path.join(TMP, "Active-1.html"), "<html>keep</html>");
+
+    const result = await runClean([{ id: 1, title: "Active" }]);
+
+    expect(fs.existsSync(path.join(TMP, "Orphan-99.html"))).toBe(false);
+    expect(fs.existsSync(path.join(TMP, "Active-1.html"))).toBe(true);
+    expect(result.removed).toEqual(["Orphan-99.html"]);
+  });
+
+  it("removes stale entries from meta.json", async () => {
+    fs.writeFileSync(path.join(TMP, "Keep-1.html"), "<html>a</html>");
+    fs.writeFileSync(path.join(TMP, "Gone-2.html"), "<html>b</html>");
+    const meta = {
+      "Keep-1.html": { id: 1, tags: [], url: "http://example.com/1" },
+      "Gone-2.html": { id: 2, tags: [], url: "http://example.com/2" },
+    };
+    fs.writeFileSync(path.join(TMP, "meta.json"), JSON.stringify(meta));
+
+    await runClean([{ id: 1, title: "Keep" }]);
+
+    const updated = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(updated["Keep-1.html"]).toBeDefined();
+    expect(updated["Gone-2.html"]).toBeUndefined();
+  });
+
+  it("does nothing when all files are linked", async () => {
+    fs.writeFileSync(path.join(TMP, "Page-1.html"), "<html>a</html>");
+    fs.writeFileSync(path.join(TMP, "Other-2.html"), "<html>b</html>");
+
+    const result = await runClean([{ id: 1, title: "Page" }, { id: 2, title: "Other" }]);
+
+    expect(result.removed).toEqual([]);
+    expect(fs.readdirSync(TMP).filter((f) => f.endsWith(".html"))).toHaveLength(2);
+  });
+
+  it("removes files that do not match the filename pattern", async () => {
+    fs.writeFileSync(path.join(TMP, "noid.html"), "<html>nope</html>");
+    fs.writeFileSync(path.join(TMP, "Page-1.html"), "<html>keep</html>");
+
+    const result = await runClean([{ id: 1, title: "Page" }]);
+
+    expect(fs.existsSync(path.join(TMP, "noid.html"))).toBe(false);
+    expect(result.removed).toEqual(["noid.html"]);
   });
 });
