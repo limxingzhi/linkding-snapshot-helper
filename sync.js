@@ -7,7 +7,7 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", 
   const existing = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")));
 
   const bookmarks = [];
-  let url = `${base}/api/bookmarks/?q=%23${tag}&limit=100`;
+  let url = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
   while (url) {
     const data = await apiGet(url);
     bookmarks.push(...data.results);
@@ -84,7 +84,7 @@ async function clean({ base, snapshotDir, apiGet, tag = "Offline", log: logger }
   const existing = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html"));
 
   const bookmarks = [];
-  let url = `${base}/api/bookmarks/?q=%23${tag}&limit=100`;
+  let url = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
   while (url) {
     const data = await apiGet(url);
     bookmarks.push(...data.results);

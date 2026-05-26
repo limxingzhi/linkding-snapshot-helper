@@ -4,11 +4,16 @@ const helmet = require("helmet");
 const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
+const { PassThrough } = require("stream");
 const { sync } = require("./sync");
 const { createLogger } = require("./logger");
 
 function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function safeIp(ip) {
+  return String(ip).replace(/[^a-fA-F0-9:.]/g, "");
 }
 
 function renderIndex(snapshotDir, filterTag) {
@@ -102,12 +107,24 @@ function renderIndex(snapshotDir, filterTag) {
 
 function createApp({ snapshotDir, syncFn, tag, logger }) {
   const app = express();
+  let syncing = false;
+  let zipCache = null;
+
+  function zipFileHash() {
+    const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+    const parts = files.map((f) => `${f}:${fs.statSync(path.join(snapshotDir, f)).mtimeMs}`);
+    return parts.join("|");
+  }
+
+  function invalidateZipCache() {
+    zipCache = null;
+  }
   app.set("trust proxy", true);
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(express.urlencoded({ extended: false }));
 
   app.use((req, _res, next) => {
-    const ip = req.ip;
+    const ip = safeIp(req.ip);
     logger.info(`${req.method} ${req.url} - ${ip}`);
     next();
   });
@@ -125,7 +142,13 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
   });
 
   app.get("/download.zip", (req, res) => {
-    const ip = req.ip;
+    const ip = safeIp(req.ip);
+    const hash = zipFileHash();
+    if (zipCache && zipCache.hash === hash) {
+      logger.info(`ZIP download served from cache (${zipCache.count} files) - ${ip}`);
+      res.type("application/zip").attachment("snapshots.zip").send(zipCache.buffer);
+      return;
+    }
     const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
     logger.info(`ZIP download requested (${files.length} files) - ${ip}`);
     res.type("application/zip").attachment("snapshots.zip");
@@ -136,7 +159,14 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
         res.status(500).json({ error: { message: "ZIP creation failed" } });
       }
     });
-    archive.pipe(res);
+    const pass = new PassThrough();
+    const chunks = [];
+    pass.on("data", (chunk) => chunks.push(chunk));
+    pass.on("end", () => {
+      zipCache = { buffer: Buffer.concat(chunks), hash, count: files.length };
+    });
+    archive.pipe(pass);
+    pass.pipe(res);
     archive.append(renderIndex(snapshotDir, tag), { name: "index.html" });
     for (const f of files) {
       archive.file(path.join(snapshotDir, f), { name: f });
@@ -145,14 +175,22 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
   });
 
   app.get("/sync", async (req, res) => {
-    const ip = req.ip;
+    const ip = safeIp(req.ip);
+    if (syncing) {
+      logger.info(`Sync skipped (already in progress) - ${ip}`);
+      return res.redirect("/");
+    }
+    syncing = true;
     logger.info(`Sync triggered via HTTP - ${ip}`);
     try {
       await syncFn();
+      invalidateZipCache();
       res.redirect("/");
     } catch (e) {
       logger.error(`Sync failed: ${e.message}`);
       res.status(500).type("text/plain").send("Sync failed. Check server logs for details.\n");
+    } finally {
+      syncing = false;
     }
   });
 
@@ -170,6 +208,7 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
       fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
     }
     logger.info(`Deleted: ${file}`);
+    invalidateZipCache();
     res.redirect("/");
   });
 
@@ -188,6 +227,12 @@ function makeApiGet(base, token) {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
     return new Promise((resolve, reject) => {
       const req = mod.get(fullUrl, { headers }, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          let body = "";
+          res.on("data", (chunk) => (body += chunk));
+          res.on("end", () => reject(new Error(`HTTP ${res.statusCode} from ${url}`)));
+          return;
+        }
         let data = "";
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
@@ -199,6 +244,10 @@ function makeApiGet(base, token) {
         });
       });
       req.on("error", reject);
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error(`Request timeout: ${url}`));
+      });
     });
   };
 }
@@ -210,15 +259,29 @@ function makeDownloadFile(base, token) {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
     return new Promise((resolve, reject) => {
       const file = fs.createWriteStream(dest);
+      const cleanup = () => {
+        try { fs.unlinkSync(dest); } catch (_) {}
+      };
       const req = mod.get(fullUrl, { headers }, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          cleanup();
+          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+          return;
+        }
+        res.on("error", (e) => { cleanup(); reject(e); });
         res.pipe(file);
         file.on("finish", () => {
           file.close(resolve);
         });
       });
       req.on("error", (e) => {
-        fs.unlinkSync(dest);
+        cleanup();
         reject(e);
+      });
+      req.setTimeout(30000, () => {
+        req.destroy();
+        cleanup();
+        reject(new Error(`Request timeout: ${url}`));
       });
     });
   };
@@ -253,9 +316,18 @@ function main() {
   }
 
   const app = createApp({ snapshotDir, syncFn, tag, logger });
-  app.listen(port, "0.0.0.0", () => {
+  const server = app.listen(port, "0.0.0.0", () => {
     logger.info(`Serving snapshots on http://0.0.0.0:${port}/`);
   });
+  const shutdown = (signal) => {
+    logger.info(`Received ${signal}, shutting down`);
+    server.close(() => {
+      logger.info("Server closed");
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 module.exports = { createApp };

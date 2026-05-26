@@ -220,6 +220,57 @@ describe("Express server", () => {
     expect(res.text).toContain('action="/delete"');
   });
 
+  it("skips concurrent sync when one is already in progress", async () => {
+    let calls = 0;
+    const slowSync = () => new Promise((r) => setTimeout(() => { calls++; r([]); }, 200));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: slowSync, logger: silentLog });
+
+    const [, res2] = await Promise.all([
+      request(app).get("/sync"),
+      new Promise((r) => setTimeout(() => r(request(app).get("/sync")), 30)),
+    ]);
+    expect(res2.status).toBe(302);
+    expect(calls).toBe(1);
+  });
+
+  it("allows sync after previous sync completes", async () => {
+    let calls = 0;
+    const countingSync = async () => { calls++; };
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: countingSync, logger: silentLog });
+
+    await request(app).get("/sync");
+    expect(calls).toBe(1);
+    await request(app).get("/sync");
+    expect(calls).toBe(2);
+  });
+
+  it("caches zip output and serves identical content on subsequent requests", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res1 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
+      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    const res2 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
+      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(res1.body.equals(res2.body)).toBe(true);
+  });
+
+  it("invalidates zip cache after delete", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "cache-del.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res1 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
+      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    await request(app).post("/delete").send("file=cache-del.html");
+    const res2 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
+      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(res1.body.equals(res2.body)).toBe(false);
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "cache-del.html"))).toBe(false);
+  });
+
   it("does not show delete button for snapshots with meta entry", async () => {
     const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com" } };
     fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
