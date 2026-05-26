@@ -147,4 +147,107 @@ describe("Express server", () => {
     expect(res.text).not.toContain("secret-clean-url");
     expect(res.text).not.toContain("token=xyz");
   });
+
+  it("shows is-read class for bookmarks with unread=false", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com", unread: false } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("is-read");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("does not show is-read class for unread bookmarks", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com", unread: true } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('class=""');
+    expect(res.text).not.toMatch(/class="[^"]*is-read[^"]*"/);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("filters the configured tag from displayed tags", async () => {
+    const meta = { "test-page.html": { id: 1, tags: ["Offline", "other"], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], tag: "Offline", logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("other");
+    expect(res.text).not.toContain("Offline");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /delete removes a snapshot file and redirects to /", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "delete-me.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").send("file=delete-me.html");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/");
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "delete-me.html"))).toBe(false);
+  });
+
+  it("POST /delete removes stale meta.json entry", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "stale.html"), "<html>x</html>");
+    const meta = { "keep.html": { id: 1 }, "stale.html": { id: 2 } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    await request(app).post("/delete").send("file=stale.html");
+
+    const updated = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, "meta.json"), "utf8"));
+    expect(updated["keep.html"]).toBeDefined();
+    expect(updated["stale.html"]).toBeUndefined();
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /delete returns 400 for missing file parameter", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").send("nope=1");
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /delete returns 400 for path traversal attempts", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").send("file=../etc/passwd");
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /delete returns 404 for non-existent file", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").send("file=nonexistent.html");
+    expect(res.status).toBe(404);
+  });
+
+  it("shows delete button for snapshots without meta entry", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/delete"');
+  });
+
+  it("does not show delete button for snapshots with meta entry", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('action="/delete"');
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
 });

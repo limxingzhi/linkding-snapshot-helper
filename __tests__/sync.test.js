@@ -293,4 +293,48 @@ describe("clean", () => {
     expect(fs.existsSync(path.join(TMP, "noid.html"))).toBe(false);
     expect(result.removed).toEqual(["noid.html"]);
   });
+
+  it("stores unread=true in meta for unread bookmarks", async () => {
+    const bookmarks = [{ id: 1, title: "Page", unread: true }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Page-1.html"].unread).toBe(true);
+  });
+
+  it("stores unread=false in meta for read bookmarks", async () => {
+    const bookmarks = [{ id: 1, title: "Page", unread: false }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Page-1.html"].unread).toBe(false);
+  });
+
+  it("defaults to unread=true when field is absent", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Page-1.html"].unread).toBe(true);
+  });
+
+  it("clean updates unread state for surviving bookmarks", async () => {
+    fs.writeFileSync(path.join(TMP, "Page-1.html"), "<html>a</html>");
+    const meta = { "Page-1.html": { id: 1, tags: [], url: "http://example.com/1", unread: true } };
+    fs.writeFileSync(path.join(TMP, "meta.json"), JSON.stringify(meta));
+
+    await runClean([{ id: 1, title: "Page", unread: false }]);
+
+    const updated = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(updated["Page-1.html"].unread).toBe(false);
+  });
 });

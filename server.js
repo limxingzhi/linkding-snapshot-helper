@@ -12,7 +12,7 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function renderIndex(snapshotDir) {
+function renderIndex(snapshotDir, filterTag) {
   const M = { bg:"#272822", bgLight:"#3e3d32", bgLighter:"#49483e", fg:"#f8f8f2", comment:"#75715e", yellow:"#e6db74", orange:"#fd971f", green:"#a6e22e", magenta:"#ae81ff", blue:"#66d9ef" };
   const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const metaPath = path.join(snapshotDir, "meta.json");
@@ -24,9 +24,14 @@ function renderIndex(snapshotDir) {
       ? `<a href="${esc(bm.url)}" target="_blank" style="color:${M.green}">#${bm.id}</a>`
       : "";
     const tags = bm && bm.tags && bm.tags.length
-      ? bm.tags.map((t) => `<span style="display:inline-block;font-family:'Fira Code',monospace;font-size:11px;padding:2px 8px;border-radius:3px;margin-right:4px;background:${M.bgLighter};color:${M.yellow}">${esc(t)}</span>`).join("")
+      ? bm.tags.filter((t) => t !== filterTag).map((t) => `<span style="display:inline-block;font-family:'Fira Code',monospace;font-size:11px;padding:2px 8px;border-radius:3px;margin-right:4px;background:${M.bgLighter};color:${M.yellow}">${esc(t)}</span>`).join("")
       : "";
-    return `<tr style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
+    const isUnread = bm && bm.unread !== false;
+    const readClass = isUnread ? "" : " is-read";
+    const delBtn = !bm
+      ? `<form method="POST" action="/delete" style="display:inline" onsubmit="return confirm('Delete ${esc(name)} — ${esc(f)}?')"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot" style="background:none;border:none;color:${M.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
+      : "";
+    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px"><span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span></td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td><td style="padding:6px 8px;text-align:center;width:32px">${delBtn}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -44,8 +49,11 @@ function renderIndex(snapshotDir) {
     .btn { display:inline-block;padding:6px 14px;border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;border:none;transition:opacity .15s; }
     .btn:hover { opacity:0.85;text-decoration:none; }
     table { width:100%;border-collapse:collapse; }
-    thead th { padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${M.comment};border-bottom:2px solid ${M.comment};font-weight:500;cursor:pointer; }
+    thead th { padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${M.comment};border-bottom:2px solid ${M.comment};font-weight:500; }
     tbody tr:hover { background:${M.bgLight}; }
+    .read-dot { background:${M.bgLighter}; }
+    tr.is-read .read-dot { background:${M.green}; }
+    tr.is-read td:nth-child(3) a { color:${M.comment}; }
   </style>
 </head>
 <body>
@@ -63,7 +71,7 @@ function renderIndex(snapshotDir) {
     <div style="overflow-x:auto">
       <table id="snapshots">
         <thead><tr>
-          <th class="sort" onclick="sortTable(0)">ID</th><th class="sort" onclick="sortTable(1)">Title</th><th>Tags</th>
+          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)">Title</th><th>Tags</th><th style="width:32px"></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -85,16 +93,17 @@ function renderIndex(snapshotDir) {
       });
       rows.forEach(r => t.querySelector("tbody").appendChild(r));
     }
-    sortTable(0);
+    sortTable(1);
   </script>
 </body>
 </html>`;
 }
 
-function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, logger }) {
+function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, tag, logger }) {
   const app = express();
   app.set("trust proxy", true);
   app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(express.urlencoded({ extended: false }));
 
   app.use((req, _res, next) => {
     const ip = req.ip;
@@ -111,7 +120,7 @@ function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, logger }) {
   });
 
   app.get("/", (_req, res) => {
-    res.type("html").send(renderIndex(snapshotDir));
+    res.type("html").send(renderIndex(snapshotDir, tag));
   });
 
   app.get("/download.zip", (req, res) => {
@@ -127,7 +136,7 @@ function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, logger }) {
       }
     });
     archive.pipe(res);
-    archive.append(renderIndex(snapshotDir), { name: "index.html" });
+    archive.append(renderIndex(snapshotDir, tag), { name: "index.html" });
     for (const f of files) {
       archive.file(path.join(snapshotDir, f), { name: f });
     }
@@ -156,6 +165,23 @@ function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, logger }) {
       logger.error(`Clean failed: ${e.message}`);
       res.status(500).type("text/plain").send("Clean failed. Check server logs for details.\n");
     }
+  });
+
+  app.post("/delete", (req, res) => {
+    const file = req.body.file;
+    if (!file) return res.status(400).type("text/plain").send("Missing file parameter\n");
+    if (file.includes("/") || file.includes("..")) return res.status(400).type("text/plain").send("Invalid filename\n");
+    const filePath = path.join(snapshotDir, file);
+    if (!fs.existsSync(filePath)) return res.status(404).type("text/plain").send("File not found\n");
+    fs.unlinkSync(filePath);
+    const metaPath = path.join(snapshotDir, "meta.json");
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+      delete meta[file];
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    }
+    logger.info(`Deleted: ${file}`);
+    res.redirect("/");
   });
 
   app.use((err, req, res, next) => {
@@ -239,7 +265,7 @@ function main() {
 
   const cleanFn = () => clean({ base, snapshotDir, apiGet, tag, log: logger });
 
-  const app = createApp({ snapshotDir, syncFn, cleanFn, logger });
+  const app = createApp({ snapshotDir, syncFn, cleanFn, tag, logger });
   app.listen(port, "0.0.0.0", () => {
     logger.info(`Serving snapshots on http://0.0.0.0:${port}/`);
   });
