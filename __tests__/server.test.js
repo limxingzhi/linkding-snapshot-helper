@@ -320,4 +320,48 @@ describe("Express server", () => {
 
     fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
   });
+
+  it("POST /delete returns 403 for non-Tailscale IP", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "nope.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").set("X-Forwarded-For", "192.168.1.5").send("file=nope.html");
+    expect(res.status).toBe(403);
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "nope.html"))).toBe(true);
+    fs.unlinkSync(path.join(FIXTURE_DIR, "nope.html"));
+  });
+
+  it("POST /delete succeeds for Tailscale IP", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "ts-del.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").set("X-Forwarded-For", "100.100.50.25").send("file=ts-del.html");
+    expect(res.status).toBe(302);
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "ts-del.html"))).toBe(false);
+  });
+
+  it("POST /delete succeeds for localhost", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "local-del.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").send("file=local-del.html");
+    expect(res.status).toBe(302);
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "local-del.html"))).toBe(false);
+  });
+
+  it("shows delete button for Tailscale IP", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/").set("X-Forwarded-For", "100.100.50.25");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/delete"');
+  });
+
+  it("hides delete button for non-Tailscale IP", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/").set("X-Forwarded-For", "192.168.1.5");
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('action="/delete"');
+  });
 });

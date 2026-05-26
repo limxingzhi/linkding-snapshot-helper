@@ -16,6 +16,19 @@ function safeIp(ip) {
   return String(ip).replace(/[^a-fA-F0-9:.]/g, "");
 }
 
+function isTailscaleIp(ip) {
+  if (!ip) return false;
+  // Allow localhost (direct access without proxy)
+  if (ip === "::1" || ip === "::ffff:127.0.0.1" || ip === "127.0.0.1") return true;
+  // Extract IPv4 from IPv6-mapped format (::ffff:x.x.x.x)
+  const match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(ip);
+  const v4 = match ? match[1] : (ip.includes(":") ? null : ip);
+  if (!v4) return false;
+  // Tailscale assigns IPs from the 100.64.0.0/10 CGNAT range (RFC 6598)
+  const octets = v4.split(".").map(Number);
+  return octets[0] === 100 && (octets[1] >= 64 && octets[1] <= 127);
+}
+
 function extractDomain(url) {
   try {
     const hostname = new URL(url).hostname;
@@ -25,7 +38,7 @@ function extractDomain(url) {
   }
 }
 
-function renderIndex(snapshotDir, filterTag) {
+function renderIndex(snapshotDir, filterTag, isTrusted) {
   const M = { bg:"#272822", bgLight:"#3e3d32", bgLighter:"#49483e", fg:"#f8f8f2", comment:"#75715e", yellow:"#e6db74", orange:"#fd971f", green:"#a6e22e", magenta:"#ae81ff", blue:"#66d9ef" };
   const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const metaPath = path.join(snapshotDir, "meta.json");
@@ -44,7 +57,7 @@ function renderIndex(snapshotDir, filterTag) {
       ? `<a href="${esc(bm.articleUrl)}" target="_blank" style="color:#8a8a7a;font-size:12px">${esc(extractDomain(bm.articleUrl))}</a>`
       : "";
     const readClass = isUnread ? "" : " is-read";
-    const delBtn = !bm
+    const delBtn = !bm && isTrusted
       ? `<form method="POST" action="/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${M.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
       : "";
     const readDot = bm
@@ -149,8 +162,8 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
     }
   });
 
-  app.get("/", (_req, res) => {
-    res.type("html").send(renderIndex(snapshotDir, tag));
+  app.get("/", (req, res) => {
+    res.type("html").send(renderIndex(snapshotDir, tag, isTailscaleIp(req.ip)));
   });
 
   app.get("/download.zip", (req, res) => {
@@ -207,6 +220,7 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
   });
 
   app.post("/delete", (req, res) => {
+    if (!isTailscaleIp(req.ip)) return res.status(403).type("text/plain").send("Forbidden\n");
     const file = req.body.file;
     if (!file) return res.status(400).type("text/plain").send("Missing file parameter\n");
     if (file.includes("/") || file.includes("..")) return res.status(400).type("text/plain").send("Invalid filename\n");
