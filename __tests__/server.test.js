@@ -129,25 +129,6 @@ describe("Express server", () => {
     fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
   });
 
-  it("GET /clean triggers clean and redirects to /", async () => {
-    const noopClean = async () => ({ removed: [] });
-    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], cleanFn: noopClean, logger: silentLog });
-
-    const res = await request(app).get("/clean");
-    expect(res.status).toBe(302);
-    expect(res.headers["location"]).toBe("/");
-  });
-
-  it("GET /clean returns 500 without leaking internal error details", async () => {
-    const failClean = async () => { throw new Error("secret-clean-url/api/token=xyz"); };
-    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], cleanFn: failClean, logger: silentLog });
-
-    const res = await request(app).get("/clean");
-    expect(res.status).toBe(500);
-    expect(res.text).not.toContain("secret-clean-url");
-    expect(res.text).not.toContain("token=xyz");
-  });
-
   it("shows is-read class for bookmarks with unread=false", async () => {
     const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com", unread: false } };
     fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));

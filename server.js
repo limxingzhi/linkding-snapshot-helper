@@ -5,7 +5,6 @@ const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
 const { sync } = require("./sync");
-const { clean } = require("./sync");
 const { createLogger } = require("./logger");
 
 function esc(s) {
@@ -29,9 +28,12 @@ function renderIndex(snapshotDir, filterTag) {
     const isUnread = bm && bm.unread !== false;
     const readClass = isUnread ? "" : " is-read";
     const delBtn = !bm
-      ? `<form method="POST" action="/delete" style="display:inline" onsubmit="return confirm('Delete ${esc(name)} — ${esc(f)}?')"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot" style="background:none;border:none;color:${M.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
+      ? `<form method="POST" action="/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${M.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
       : "";
-    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px"><span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span></td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td><td style="padding:6px 8px;text-align:center;width:32px">${delBtn}</td></tr>`;
+    const readDot = bm
+      ? `<span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>`
+      : "";
+    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${readDot}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td><td style="padding:6px 8px;text-align:center;width:32px">${delBtn}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -65,7 +67,6 @@ function renderIndex(snapshotDir, filterTag) {
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="/download.zip" class="btn" style="background:${M.green};color:${M.bg}">Download ZIP</a>
         <a href="/sync" class="btn" style="background:${M.magenta};color:${M.bg}">Sync</a>
-        <a href="/clean" class="btn" style="background:${M.blue};color:${M.bg}">Clean</a>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -99,7 +100,7 @@ function renderIndex(snapshotDir, filterTag) {
 </html>`;
 }
 
-function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, tag, logger }) {
+function createApp({ snapshotDir, syncFn, tag, logger }) {
   const app = express();
   app.set("trust proxy", true);
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -152,18 +153,6 @@ function createApp({ snapshotDir, syncFn, cleanFn = async () => {}, tag, logger 
     } catch (e) {
       logger.error(`Sync failed: ${e.message}`);
       res.status(500).type("text/plain").send("Sync failed. Check server logs for details.\n");
-    }
-  });
-
-  app.get("/clean", async (req, res) => {
-    const ip = req.ip;
-    logger.info(`Clean triggered via HTTP - ${ip}`);
-    try {
-      await cleanFn();
-      res.redirect("/");
-    } catch (e) {
-      logger.error(`Clean failed: ${e.message}`);
-      res.status(500).type("text/plain").send("Clean failed. Check server logs for details.\n");
     }
   });
 
@@ -263,9 +252,7 @@ function main() {
     syncFn().catch((e) => logger.error(`Startup sync failed: ${e.message}`));
   }
 
-  const cleanFn = () => clean({ base, snapshotDir, apiGet, tag, log: logger });
-
-  const app = createApp({ snapshotDir, syncFn, cleanFn, tag, logger });
+  const app = createApp({ snapshotDir, syncFn, tag, logger });
   app.listen(port, "0.0.0.0", () => {
     logger.info(`Serving snapshots on http://0.0.0.0:${port}/`);
   });
