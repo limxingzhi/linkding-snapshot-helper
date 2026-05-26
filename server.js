@@ -16,6 +16,15 @@ function safeIp(ip) {
   return String(ip).replace(/[^a-fA-F0-9:.]/g, "");
 }
 
+function extractDomain(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 function renderIndex(snapshotDir, filterTag) {
   const M = { bg:"#272822", bgLight:"#3e3d32", bgLighter:"#49483e", fg:"#f8f8f2", comment:"#75715e", yellow:"#e6db74", orange:"#fd971f", green:"#a6e22e", magenta:"#ae81ff", blue:"#66d9ef" };
   const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
@@ -31,6 +40,9 @@ function renderIndex(snapshotDir, filterTag) {
       ? bm.tags.filter((t) => t !== filterTag).map((t) => `<span style="display:inline-block;font-family:'Fira Code',monospace;font-size:11px;padding:2px 8px;border-radius:3px;margin-right:4px;background:${M.bgLighter};color:${M.yellow}">${esc(t)}</span>`).join("")
       : "";
     const isUnread = bm && bm.unread !== false;
+    const domainCell = bm && bm.articleUrl
+      ? `<a href="${esc(bm.articleUrl)}" target="_blank" style="color:#8a8a7a;font-size:12px">${esc(extractDomain(bm.articleUrl))}</a>`
+      : "";
     const readClass = isUnread ? "" : " is-read";
     const delBtn = !bm
       ? `<form method="POST" action="/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${M.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
@@ -38,7 +50,7 @@ function renderIndex(snapshotDir, filterTag) {
     const readDot = bm
       ? `<span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>`
       : "";
-    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${readDot}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td><td style="padding:6px 8px;text-align:center;width:32px">${delBtn}</td></tr>`;
+    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${readDot}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td><td style="padding:6px 16px 6px 12px">${domainCell}</td><td style="padding:6px 8px;text-align:center;width:32px">${delBtn}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -77,7 +89,7 @@ function renderIndex(snapshotDir, filterTag) {
     <div style="overflow-x:auto">
       <table id="snapshots">
         <thead><tr>
-          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)">Title</th><th>Tags</th><th style="width:32px"></th>
+          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)">Title</th><th>Tags</th><th>Domain</th><th style="width:32px"></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>

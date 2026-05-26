@@ -294,6 +294,29 @@ describe("clean", () => {
     expect(result.removed).toEqual(["noid.html"]);
   });
 
+  it("stores articleUrl in meta from bookmark", async () => {
+    const bookmarks = [{ id: 1, title: "Page", url: "https://example.com/article" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Page-1.html"].articleUrl).toBe("https://example.com/article");
+  });
+
+  it("stores articleUrl in meta for skipped bookmarks on re-sync", async () => {
+    fs.writeFileSync(path.join(TMP, "Page-1.html"), "existing");
+    const bookmarks = [{ id: 1, title: "Page", url: "https://example.com/article", tag_names: ["tag1"] }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Page-1.html"].articleUrl).toBe("https://example.com/article");
+  });
+
   it("stores unread=true in meta for unread bookmarks", async () => {
     const bookmarks = [{ id: 1, title: "Page", unread: true }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };

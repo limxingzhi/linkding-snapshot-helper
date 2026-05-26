@@ -282,4 +282,42 @@ describe("Express server", () => {
 
     fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
   });
+
+  it("shows domain column linking to article URL", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://linkd.example/bookmarks", articleUrl: "https://example.com/article" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('href="https://example.com/article"');
+    expect(res.text).toContain("example.com");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("strips www. from domain display", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://linkd.example/bookmarks", articleUrl: "https://www.example.com/article" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(">example.com<");
+    expect(res.text).toContain('href="https://www.example.com/article"');
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("shows empty domain cell when articleUrl is missing", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://linkd.example/bookmarks" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("<th>Domain</th>");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
 });
