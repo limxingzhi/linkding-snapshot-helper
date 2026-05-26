@@ -50,13 +50,15 @@ function renderIndex(snapshotDir) {
 </head>
 <body>
   <div style="max-width:960px;margin:0 auto;padding:32px 24px">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap">
       <h1 style="font-size:22px;font-weight:700;color:${M.fg}">Snapshots</h1>
       <span style="color:${M.comment};font-size:13px">${files.length}</span>
-      <div style="flex:1"></div>
-      <a href="/download.zip" class="btn" style="background:${M.green};color:${M.bg}">Download ZIP</a>
-      <a href="/sync" class="btn" style="background:${M.magenta};color:${M.bg}">Sync</a>
-      <a href="/clean" class="btn" style="background:${M.blue};color:${M.bg}">Clean</a>
+      <div style="flex:1;min-width:8px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/download.zip" class="btn" style="background:${M.green};color:${M.bg}">Download ZIP</a>
+        <a href="/sync" class="btn" style="background:${M.magenta};color:${M.bg}">Sync</a>
+        <a href="/clean" class="btn" style="background:${M.blue};color:${M.bg}">Clean</a>
+      </div>
     </div>
     <div style="overflow-x:auto">
       <table id="snapshots">
