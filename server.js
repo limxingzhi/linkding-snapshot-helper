@@ -62,7 +62,7 @@ function renderIndex(snapshotDir, filterTag, isTrusted) {
       : isTrusted
         ? `<form method="POST" action="/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${M.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
         : "";
-    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${firstCell}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${tags}</td><td style="padding:6px 16px 6px 12px">${domainCell}</td></tr>`;
+    return `<tr class="${readClass}" style="border-bottom:1px solid ${M.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${firstCell}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${M.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${domainCell}</td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -101,7 +101,7 @@ function renderIndex(snapshotDir, filterTag, isTrusted) {
     <div style="overflow-x:auto">
       <table id="snapshots">
         <thead><tr>
-          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)" style="min-width:300px;width:40%">Title</th><th>Tags</th><th>Domain</th>
+          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)" style="min-width:300px;width:40%">Title</th><th>Domain</th><th>Tags</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
