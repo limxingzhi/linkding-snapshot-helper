@@ -147,6 +147,11 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(express.urlencoded({ extended: false }));
 
+  const trustCheck = (req, _res, next) => {
+    req.isTrusted = isTailscaleIp(req.ip);
+    next();
+  };
+
   app.use((req, _res, next) => {
     const ip = safeIp(req.ip);
     logger.info(`${req.method} ${req.url} - ${ip}`);
@@ -161,8 +166,8 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
     }
   });
 
-  app.get("/", (req, res) => {
-    res.type("html").send(renderIndex(snapshotDir, tag, isTailscaleIp(req.ip)));
+  app.get("/", trustCheck, (req, res) => {
+    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted));
   });
 
   app.get("/download.zip", (req, res) => {
@@ -218,8 +223,8 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
     }
   });
 
-  app.post("/delete", (req, res) => {
-    if (!isTailscaleIp(req.ip)) return res.status(403).type("text/plain").send("Forbidden\n");
+  app.post("/delete", trustCheck, (req, res) => {
+    if (!req.isTrusted) return res.status(403).type("text/plain").send("Forbidden\n");
     const file = req.body.file;
     if (!file) return res.status(400).type("text/plain").send("Missing file parameter\n");
     if (file.includes("/") || file.includes("..")) return res.status(400).type("text/plain").send("Invalid filename\n");
