@@ -102,7 +102,7 @@ function renderIndex(snapshotDir, filterTag, isTrusted) {
     <div style="overflow-x:auto">
       <table id="snapshots">
         <thead><tr>
-          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)">Title</th><th>Tags</th><th>Domain</th><th style="width:32px"></th>
+          <th style="width:32px"></th><th class="sort" onclick="sortTable(1)">ID</th><th class="sort" onclick="sortTable(2)" style="min-width:300px;width:40%">Title</th><th>Tags</th><th>Domain</th><th style="width:32px"></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
