@@ -155,6 +155,9 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
   app.use((req, _res, next) => {
     const ip = safeIp(req.ip);
     logger.info(`${req.method} ${req.url} - ${ip}`);
+    if (!isTailscaleIp(req.ip)) {
+      logger.toExternal(`${req.method} ${req.url} - ${ip}`);
+    }
     next();
   });
 

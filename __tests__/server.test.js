@@ -4,7 +4,7 @@ const path = require("path");
 const { createApp } = require("../server");
 const { execSync } = require("child_process");
 
-const silentLog = { info: () => {}, warn: () => {}, error: () => {} };
+const silentLog = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
 const FIXTURE_DIR = path.join(__dirname, "__fixtures__", "snapshots");
 const TMP_DIR = path.join(__dirname, "__fixtures__", "zip_tmp");
 
@@ -363,5 +363,45 @@ describe("Express server", () => {
     const res = await request(app).get("/").set("X-Forwarded-For", "192.168.1.5");
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('action="/delete"');
+  });
+
+  describe("external access logging", () => {
+    it("calls toExternal for non-Tailscale IP", async () => {
+      const calls = [];
+      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
+
+      await request(app).get("/test-page.html").set("X-Forwarded-For", "192.168.1.5");
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+      expect(calls[0]).toMatch(/^GET \/test-page\.html - 192\.168\.1\.5$/);
+    });
+
+    it("calls toExternal for public IP", async () => {
+      const calls = [];
+      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
+
+      await request(app).get("/").set("X-Forwarded-For", "203.0.113.42");
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+      expect(calls[0]).toMatch(/^GET \/ - 203\.0\.113\.42$/);
+    });
+
+    it("does not call toExternal for Tailscale IP", async () => {
+      const calls = [];
+      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
+
+      await request(app).get("/").set("X-Forwarded-For", "100.100.50.25");
+      expect(calls).toHaveLength(0);
+    });
+
+    it("does not call toExternal for localhost", async () => {
+      const calls = [];
+      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
+
+      await request(app).get("/");
+      expect(calls).toHaveLength(0);
+    });
   });
 });

@@ -21,6 +21,7 @@ function rotate(logFile) {
 function createLogger(logDir) {
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, "server.log");
+  const externalLogFile = path.join(logDir, "external-access.log");
 
   function write(level, msg) {
     const ts = new Date().toISOString();
@@ -34,10 +35,18 @@ function createLogger(logDir) {
     fs.appendFileSync(logFile, line);
   }
 
+  function writeExternal(msg) {
+    const ts = new Date().toISOString();
+    const line = `${ts} [EXTERNAL] ${msg}\n`;
+    process.stdout.write(line);
+    fs.appendFileSync(externalLogFile, line);
+  }
+
   return {
     info: (msg) => write("INFO", msg),
     warn: (msg) => write("WARN", msg),
     error: (msg) => write("ERROR", msg),
+    toExternal: writeExternal,
   };
 }
 
