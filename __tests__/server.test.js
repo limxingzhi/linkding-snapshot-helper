@@ -373,7 +373,7 @@ describe("Express server", () => {
 
       await request(app).get("/test-page.html").set("X-Forwarded-For", "192.168.1.5");
       expect(calls.length).toBeGreaterThanOrEqual(1);
-      expect(calls[0]).toMatch(/^GET \/test-page\.html - 192\.168\.1\.5$/);
+      expect(calls[0]).toMatch(/^192\.168\.1\.5 - GET \/test-page\.html$/);
     });
 
     it("calls toExternal for public IP", async () => {
@@ -383,7 +383,7 @@ describe("Express server", () => {
 
       await request(app).get("/").set("X-Forwarded-For", "203.0.113.42");
       expect(calls.length).toBeGreaterThanOrEqual(1);
-      expect(calls[0]).toMatch(/^GET \/ - 203\.0\.113\.42$/);
+      expect(calls[0]).toMatch(/^203\.0\.113\.42 - GET \/$/);
     });
 
     it("does not call toExternal for Tailscale IP", async () => {

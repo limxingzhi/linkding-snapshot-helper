@@ -154,9 +154,9 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
 
   app.use((req, _res, next) => {
     const ip = safeIp(req.ip);
-    logger.info(`${req.method} ${req.url} - ${ip}`);
+    logger.info(`${ip} - ${req.method} ${req.url}`);
     if (!isTailscaleIp(req.ip)) {
-      logger.toExternal(`${req.method} ${req.url} - ${ip}`);
+      logger.toExternal(`${ip} - ${req.method} ${req.url}`);
     }
     next();
   });
@@ -177,12 +177,12 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
     const ip = safeIp(req.ip);
     const hash = zipFileHash();
     if (zipCache && zipCache.hash === hash) {
-      logger.info(`ZIP download served from cache (${zipCache.count} files) - ${ip}`);
+      logger.info(`${ip} - ZIP download served from cache (${zipCache.count} files)`);
       res.type("application/zip").attachment("snapshots.zip").send(zipCache.buffer);
       return;
     }
     const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
-    logger.info(`ZIP download requested (${files.length} files) - ${ip}`);
+    logger.info(`${ip} - ZIP download requested (${files.length} files)`);
     res.type("application/zip").attachment("snapshots.zip");
     const archive = archiver("zip", { zlib: { level: 9 } });
     archive.on("error", (err) => {
@@ -209,11 +209,11 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
   app.get("/sync", async (req, res) => {
     const ip = safeIp(req.ip);
     if (syncing) {
-      logger.info(`Sync skipped (already in progress) - ${ip}`);
+      logger.info(`${ip} - Sync skipped (already in progress)`);
       return res.redirect("/");
     }
     syncing = true;
-    logger.info(`Sync triggered via HTTP - ${ip}`);
+    logger.info(`${ip} - Sync triggered via HTTP`);
     try {
       await syncFn();
       invalidateZipCache();
