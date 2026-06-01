@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { sanitize } = require("./sanitize");
 
-async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", log: logger }) {
+async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", log: logger, delay = 200 }) {
   fs.mkdirSync(snapshotDir, { recursive: true });
   const existing = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")));
 
@@ -64,6 +64,8 @@ async function sync({ base, snapshotDir, apiGet, downloadFile, tag = "Offline", 
     } catch (e) {
       logger.error(`[${i + 1}/${bookmarks.length}] ERROR: ${safeTitle} - ${e.message}`);
       log.push({ status: "error", title: safeTitle, error: e.message });
+    } finally {
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
 

@@ -254,7 +254,7 @@ function createApp({ snapshotDir, syncFn, tag, logger }) {
 }
 
 function makeApiGet(base, token) {
-  const headers = token ? { Authorization: `Token ${token}` } : {};
+  const headers = token ? { Authorization: `Token ${token}`, Connection: "close" } : { Connection: "close" };
   const mod = base.startsWith("https") ? require("https") : require("http");
   return function apiGet(url) {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
@@ -286,7 +286,7 @@ function makeApiGet(base, token) {
 }
 
 function makeDownloadFile(base, token) {
-  const headers = token ? { Authorization: `Token ${token}` } : {};
+  const headers = token ? { Authorization: `Token ${token}`, Connection: "close" } : { Connection: "close" };
   const mod = base.startsWith("https") ? require("https") : require("http");
   return function downloadFile(url, dest) {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
@@ -319,7 +319,6 @@ function makeDownloadFile(base, token) {
     });
   };
 }
-
 function main() {
   const base = (process.env.LINKDING_URL || "").replace(/\/+$/, "");
   const token = process.env.LINKDING_TOKEN || "";
@@ -327,6 +326,7 @@ function main() {
   const port = parseInt(process.env.PORT || "8080", 10);
   const snapshotDir = process.env.SNAPSHOT_DIR || "/snapshots";
   const syncOnStart = (process.env.SYNC_ON_START || "true").toLowerCase() === "true";
+  const delay = parseInt(process.env.SYNC_DELAY || "200", 10);
 
   const logDir = process.env.LOG_DIR || path.join(snapshotDir, "..", "logs");
   const logger = createLogger(logDir);
@@ -341,7 +341,7 @@ function main() {
   const apiGet = makeApiGet(base, token);
   const downloadFile = makeDownloadFile(base, token);
 
-  const syncFn = () => sync({ base, snapshotDir, apiGet, downloadFile, tag, log: logger });
+  const syncFn = () => sync({ base, snapshotDir, apiGet, downloadFile, tag, log: logger, delay });
 
   if (syncOnStart) {
     logger.info("Sync triggered on startup");
