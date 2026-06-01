@@ -14,6 +14,27 @@ npm start
 
 Open `http://localhost:8080` to browse your snapshots.
 
+## Docker
+
+```yaml
+services:
+  linkding-snapshot-helper:
+    image: ghcr.io/limxingzhi/linkding-snapshot-helper:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - LINKDING_URL=https://linkd.example.com
+      - LINKDING_TOKEN=your-api-token-here
+      - LINKDING_TAG=Offline
+    volumes:
+      - snapshots:/snapshots
+      - logs:/logs
+
+volumes:
+  snapshots:
+  logs:
+```
+
 ## Configuration
 
 All config is via environment variables (set them in `.env`):

@@ -1,0 +1,9 @@
+.git
+.github
+.env
+node_modules
+__tests__
+coverage
+*.test.js
+vitest.config.js
+AGENTS.md
