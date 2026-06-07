@@ -6,12 +6,13 @@ import type {
   DownloadFile,
   Logger,
   LinkdingBookmark,
-  LinkdingAsset,
-  LinkdingResponse,
   SyncLogEntry,
-  SyncLogEntryOk,
-  SyncLogEntrySkip,
   MetaRecord,
+} from "./types";
+import {
+  BookmarkListResponseSchema,
+  AssetListResponseSchema,
+  MetaRecordSchema,
 } from "./types";
 
 export interface SyncOptions {
@@ -47,9 +48,9 @@ export async function sync({
   const bookmarks: LinkdingBookmark[] = [];
   let url: string | null = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
   while (url) {
-    const data = (await apiGet(url)) as LinkdingResponse;
-    bookmarks.push(...(data.results as LinkdingBookmark[]));
-    url = data.next || null;
+    const data = BookmarkListResponseSchema.parse(await apiGet(url));
+    bookmarks.push(...data.results);
+    url = data.next;
   }
 
   logger.info(`Syncing ${bookmarks.length} bookmarks...`);
@@ -64,8 +65,8 @@ export async function sync({
     const filename = `${safeTitle}-${bmId}.html`;
 
     try {
-      const assetsData = (await apiGet(`${base}/api/bookmarks/${bmId}/assets/`)) as LinkdingResponse;
-      const snapshots = (assetsData.results as LinkdingAsset[]).filter((a) => a.asset_type === "snapshot");
+      const assetsData = AssetListResponseSchema.parse(await apiGet(`${base}/api/bookmarks/${bmId}/assets/`));
+      const snapshots = assetsData.results.filter((a) => a.asset_type === "snapshot");
 
       if (snapshots.length === 0) {
         logger.info(`[${i + 1}/${bookmarks.length}] SKIP (no snapshot): ${safeTitle}`);
@@ -122,14 +123,21 @@ export async function sync({
 
   const meta: MetaRecord = {};
   for (const entry of log) {
-    if ("filename" in entry && entry.filename && "bookmarkUrl" in entry && (entry as SyncLogEntrySkip).bookmarkUrl) {
-      const e = entry as SyncLogEntryOk | (SyncLogEntrySkip & { bookmarkUrl: string });
-      meta[entry.filename!] = {
-        id: e.bookmarkId!,
-        tags: e.tags || [],
-        url: e.bookmarkUrl,
-        articleUrl: (e as SyncLogEntryOk).articleUrl || "",
-        unread: (e as SyncLogEntryOk).unread !== false,
+    if (entry.status === "ok") {
+      meta[entry.filename] = {
+        id: entry.bookmarkId,
+        tags: entry.tags,
+        url: entry.bookmarkUrl,
+        articleUrl: entry.articleUrl,
+        unread: entry.unread,
+      };
+    } else if (entry.status === "skip" && entry.filename && entry.bookmarkId && entry.bookmarkUrl) {
+      meta[entry.filename] = {
+        id: entry.bookmarkId,
+        tags: entry.tags || [],
+        url: entry.bookmarkUrl,
+        articleUrl: entry.articleUrl || "",
+        unread: entry.unread !== false,
       };
     }
   }
@@ -141,7 +149,7 @@ export async function sync({
 function readMeta(snapshotDir: string): MetaRecord {
   const metaPath = path.join(snapshotDir, "meta.json");
   if (fs.existsSync(metaPath)) {
-    return JSON.parse(fs.readFileSync(metaPath, "utf8")) as MetaRecord;
+    return MetaRecordSchema.parse(JSON.parse(fs.readFileSync(metaPath, "utf8")));
   }
   return {};
 }
@@ -159,9 +167,9 @@ export async function clean({
   const bookmarks: LinkdingBookmark[] = [];
   let url: string | null = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
   while (url) {
-    const data = (await apiGet(url)) as LinkdingResponse;
-    bookmarks.push(...(data.results as LinkdingBookmark[]));
-    url = data.next || null;
+    const data = BookmarkListResponseSchema.parse(await apiGet(url));
+    bookmarks.push(...data.results);
+    url = data.next;
   }
 
   const activeIds = new Set(bookmarks.map((bm) => String(bm.id)));

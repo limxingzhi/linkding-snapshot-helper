@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { sync, clean } from "../sync";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import type { ApiGet, DownloadFile, Logger, LinkdingBookmark, LinkdingAsset, LinkdingResponse } from "../types";
+import type { ApiGet, DownloadFile, Logger, LinkdingBookmark, LinkdingAsset } from "../types";
 
 const silentLog: Logger = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
 const TMP = path.join(__dirname, "__fixtures__", "sync_tmp");
@@ -44,12 +44,12 @@ function makeApi(base: string): ApiGet {
             ? `${bookmarksPath}?limit=${limit}&offset=${offset + limit}`
             : null,
         count: linkding.bookmarks.length,
-      } as LinkdingResponse;
+      };
     }
     const assetMatch = url.match(/\/api\/bookmarks\/(\d+)\/assets\//);
     if (assetMatch) {
       const bmId = parseInt(assetMatch[1], 10);
-      return { results: linkding.assets[bmId] || [], next: null, count: (linkding.assets[bmId] || []).length } as LinkdingResponse;
+      return { results: linkding.assets[bmId] || [], next: null, count: (linkding.assets[bmId] || []).length };
     }
     throw new Error(`Unexpected API call: ${url}`);
   };

@@ -25,7 +25,8 @@
     "archiver": "^6.0.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "helmet": "^8.2.0"
+    "helmet": "^8.2.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",

@@ -10,7 +10,8 @@ import http from "http";
 import https from "https";
 import { sync } from "./sync";
 import { createLogger } from "./logger";
-import type { Logger, SyncLogEntry, SyncFn, ZipCache, ApiGet, DownloadFile } from "./types";
+import type { Logger, SyncLogEntry, SyncFn, ZipCache, ApiGet, DownloadFile, MetaRecord } from "./types";
+import { z } from "zod";
 
 const Colors = {
   bg: "#272822",
@@ -51,16 +52,6 @@ function extractDomain(url: string): string {
     return "";
   }
 }
-
-interface BookmarkMeta {
-  id: number;
-  tags: string[];
-  url: string;
-  articleUrl?: string;
-  unread?: boolean;
-}
-
-type MetaRecord = Record<string, BookmarkMeta>;
 
 function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean): string {
   const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
@@ -260,9 +251,10 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
 
   app.post("/delete", trustCheck, (req: Request, res: Response) => {
     if (!req.isTrusted) { res.status(403).type("text/plain").send("Forbidden\n"); return; }
-    const file = req.body.file;
-    if (!file) { res.status(400).type("text/plain").send("Missing file parameter\n"); return; }
-    if (typeof file !== "string" || file.includes("/") || file.includes("..")) { res.status(400).type("text/plain").send("Invalid filename\n"); return; }
+    const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includes(".."), { message: "Invalid filename" });
+    const parsed = FileSchema.safeParse(req.body.file);
+    if (!parsed.success) { res.status(400).type("text/plain").send("Invalid filename\n"); return; }
+    const file = parsed.data;
     const filePath = path.join(snapshotDir, file);
     if (!fs.existsSync(filePath)) { res.status(404).type("text/plain").send("File not found\n"); return; }
     fs.unlinkSync(filePath);
