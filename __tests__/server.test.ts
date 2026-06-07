@@ -1,10 +1,12 @@
-const request = require("supertest");
-const fs = require("fs");
-const path = require("path");
-const { createApp } = require("../server");
-const { execSync } = require("child_process");
+import request from "supertest";
+import fs from "fs";
+import path from "path";
+import { createApp } from "../server";
+import { execSync } from "child_process";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import type { Logger, SyncFn } from "../types";
 
-const silentLog = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
+const silentLog: Logger = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
 const FIXTURE_DIR = path.join(__dirname, "__fixtures__", "snapshots");
 const TMP_DIR = path.join(__dirname, "__fixtures__", "zip_tmp");
 
@@ -18,7 +20,7 @@ afterAll(() => {
 });
 
 describe("Express server", () => {
-  let app;
+  let app: ReturnType<typeof createApp>;
 
   beforeEach(() => {
     const noopSync = async () => [];
@@ -84,7 +86,7 @@ describe("Express server", () => {
 
   it("GET /download.zip returns a zip containing all snapshots", async () => {
     const res = await request(app).get("/download.zip").buffer(true).parse((res, callback) => {
-      const chunks = [];
+      const chunks: Buffer[] = [];
       res.on("data", (chunk) => chunks.push(chunk));
       res.on("end", () => callback(null, Buffer.concat(chunks)));
     });
@@ -222,12 +224,12 @@ describe("Express server", () => {
 
   it("skips concurrent sync when one is already in progress", async () => {
     let calls = 0;
-    const slowSync = () => new Promise((r) => setTimeout(() => { calls++; r([]); }, 200));
-    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: slowSync, logger: silentLog });
+    const slowSync = () => new Promise<[]>((r) => setTimeout(() => { calls++; r([]); }, 200));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: slowSync as () => Promise<[]>, logger: silentLog });
 
     const [, res2] = await Promise.all([
       request(app).get("/sync"),
-      new Promise((r) => setTimeout(() => r(request(app).get("/sync")), 30)),
+      new Promise<any>((r) => setTimeout(() => r(request(app).get("/sync")), 30)),
     ]);
     expect(res2.status).toBe(302);
     expect(calls).toBe(1);
@@ -235,7 +237,7 @@ describe("Express server", () => {
 
   it("allows sync after previous sync completes", async () => {
     let calls = 0;
-    const countingSync = async () => { calls++; };
+    const countingSync: SyncFn = async () => { calls++; return []; };
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: countingSync, logger: silentLog });
 
     await request(app).get("/sync");
@@ -248,10 +250,10 @@ describe("Express server", () => {
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
 
     const res1 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
-      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+      const chunks: Buffer[] = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
     });
     const res2 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
-      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+      const chunks: Buffer[] = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
     });
     expect(res1.body.equals(res2.body)).toBe(true);
   });
@@ -261,11 +263,11 @@ describe("Express server", () => {
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
 
     const res1 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
-      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+      const chunks: Buffer[] = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
     });
     await request(app).post("/delete").send("file=cache-del.html");
     const res2 = await request(app).get("/download.zip").buffer(true).parse((r, cb) => {
-      const chunks = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
+      const chunks: Buffer[] = []; r.on("data", (c) => chunks.push(c)); r.on("end", () => cb(null, Buffer.concat(chunks)));
     });
     expect(res1.body.equals(res2.body)).toBe(false);
     expect(fs.existsSync(path.join(FIXTURE_DIR, "cache-del.html"))).toBe(false);
@@ -367,8 +369,8 @@ describe("Express server", () => {
 
   describe("external access logging", () => {
     it("calls toExternal for non-Tailscale IP", async () => {
-      const calls = [];
-      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const calls: string[] = [];
+      const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
 
       await request(app).get("/test-page.html").set("X-Forwarded-For", "192.168.1.5");
@@ -377,8 +379,8 @@ describe("Express server", () => {
     });
 
     it("calls toExternal for public IP", async () => {
-      const calls = [];
-      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const calls: string[] = [];
+      const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
 
       await request(app).get("/").set("X-Forwarded-For", "203.0.113.42");
@@ -387,8 +389,8 @@ describe("Express server", () => {
     });
 
     it("does not call toExternal for Tailscale IP", async () => {
-      const calls = [];
-      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const calls: string[] = [];
+      const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
 
       await request(app).get("/").set("X-Forwarded-For", "100.100.50.25");
@@ -396,11 +398,11 @@ describe("Express server", () => {
     });
 
     it("does not call toExternal for localhost", async () => {
-      const calls = [];
-      const testLog = { ...silentLog, toExternal: (m) => calls.push(m) };
+      const calls: string[] = [];
+      const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
 
-      await request(app).get("/");
+      await request(app).get("/").send();
       expect(calls).toHaveLength(0);
     });
   });

@@ -1,15 +1,14 @@
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const { createLogger } = require("../logger");
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { createLogger } from "../logger";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 describe("logger", () => {
-  let tmpDir;
-  let log;
+  let tmpDir: string;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "logger-test-"));
-    log = createLogger(tmpDir);
   });
 
   afterEach(() => {
@@ -18,6 +17,7 @@ describe("logger", () => {
 
   describe("toExternal", () => {
     it("appends messages to external-access.log", () => {
+      const log = createLogger(tmpDir);
       log.toExternal("GET / - 203.0.113.5");
       log.toExternal("POST /delete - 198.51.100.2");
 
@@ -28,6 +28,7 @@ describe("logger", () => {
     });
 
     it("does not write to external-access.log on rotation of server.log", () => {
+      const log = createLogger(tmpDir);
       // Write enough to fill server.log just under rotation
       const big = "x".repeat(500);
       for (let i = 0; i < 10; i++) log.info(big);

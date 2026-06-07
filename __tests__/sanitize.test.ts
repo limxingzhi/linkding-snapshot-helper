@@ -1,4 +1,5 @@
-const { sanitize } = require("../sanitize");
+import { sanitize } from "../sanitize";
+import { describe, it, expect } from "vitest";
 
 describe("sanitize", () => {
   it("returns the title unchanged when already safe", () => {

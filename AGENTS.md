@@ -4,17 +4,19 @@ Express 5 server that syncs SingleFile snapshots from Linkding bookmarks and ser
 
 ## Commands
 
-- `npm start` — `node server.js`
+- `npm start` — `tsx server.ts` (TS via tsx, no compile step needed)
 - `npm test` — `vitest` (watch); `npm run test:run` — single run
-- No build step. CommonJS only (`"type": "commonjs"`).
+- `npm run typecheck` — `tsc --noEmit`
+- CommonJS output (`"type": "commonjs"`). tsconfig has `outDir: "dist"` but no explicit build script.
 
 ## Architecture
 
 ```
-server.js    → Express app + CLI entry point. Exports `createApp` for testing.
-sync.js      → `sync()` and `clean()` — exports both for testing.
-sanitize.js  → `sanitize(title)` → safe filename
-logger.js    → `createLogger(logDir)` → rotating file logger
+server.ts    → Express app + CLI entry point. Exports `createApp` for testing.
+sync.ts      → `sync()` and `clean()` — exports both for testing.
+sanitize.ts  → `sanitize(title)` → safe filename
+logger.ts    → `createLogger(logDir)` → rotating file logger
+types.ts     → Shared TypeScript types (Logger, ApiGet, LinkdingBookmark, etc.)
 ```
 
 **Control flow**: `main()` reads env, creates logger + `apiGet`/`downloadFile` via raw `http`/`https`, optionally runs `sync()` on start, then `createApp()` starts Express.
@@ -34,8 +36,8 @@ logger.js    → `createLogger(logDir)` → rotating file logger
 ## Testing
 
 - **Vitest** with `globals: true`, `environment: 'node'`. Supertest for HTTP.
-- Inject fake `apiGet`/`downloadFile`/`syncFn`. Use `{ info:()=>{}, warn:()=>{}, error:()=>{} }` for silent logging.
-- Temp dirs in `__tests__/__fixtures__/`, cleaned up in `afterEach`/`afterAll`.
+- Inject fake `apiGet`/`downloadFile`/`syncFn`. Use `{ info:()=>{}, warn:()=>{}, error:()=>{}, toExternal:()=>{} }` for silent logging.
+- Per-test temp dirs under `__tests__/__fixtures__/` (e.g. `sync_tmp`, `snapshots`, `zip_tmp`), cleaned up in `afterEach`/`afterAll`.
 
 ## Gotchas
 
