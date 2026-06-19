@@ -6,21 +6,25 @@ user-invocable: true
 
 # HTML → TXT Converter
 
-Converts HTML snapshots into clean `.txt` files suitable for e-readers.
+Converts SingleFile HTML snapshots into clean `.txt` files suitable for e-readers.
+
+**Uses Mozilla Readability** (Firefox Reader Mode algorithm) to identify the main article content, stripping navigation, sidebars, ads, cookie banners, and other boilerplate before rendering as plain text.
 
 **What it does:**
-- Extracts readable text (paragraphs, headings, lists, blockquotes)
-- Strips navigation, scripts, styles, forms, and other boilerplate
-- Removes all images, figures, SVGs, and canvases
+- Extracts the main article body via Mozilla Readability (same engine as Firefox Reader Mode)
+- Renders paragraphs, headings, lists, and blockquotes as readable text
+- Strips all images, figures, SVGs, videos, audio, and embeds
+- Removes navigation, sidebars, footers, cookie banners, and related-content widgets
+- Filters common boilerplate lines (copyright, privacy, sign-up prompts)
 - Word-wraps at a configurable column width (default 80)
 - Saves as `.txt` alongside the original HTML file
 
-**No external dependencies** — uses Python's standard library HTML parser.
+**Dependencies:** `@mozilla/readability`, `jsdom` (already in project devDependencies).
 
 ## Usage
 
 ```bash
-python3 /root/linkding-snapshot-helper/.agents/skills/html-to-txt/convert.py /path/to/file.html
+npx tsx /root/linkding-snapshot-helper/.agents/skills/html-to-txt/convert.ts /path/to/file.html
 ```
 
 Output: `/path/to/file.txt` (same name, `.txt` extension)
@@ -36,21 +40,22 @@ Output: `/path/to/file.txt` (same name, `.txt` extension)
 
 ```bash
 # Basic — converts file.html → file.txt
-python3 convert.py ~/snapshots/economist-article.html
+npx tsx convert.ts ~/snapshots/economist-article.html
 
 # Custom output path
-python3 convert.py article.html --out ~/kindle/notes.txt
+npx tsx convert.ts article.html --out ~/kindle/notes.txt
 
-# Wider lines for desktop reading
-python3 convert.py article.html --width 120
+# Wider lines
+npx tsx convert.ts article.html --width 120
 
-# No line wrapping
-python3 convert.py article.html --width 0
+# No wrapping
+npx tsx convert.ts article.html --width 0
 ```
 
-## Tips
+## Notes
 
-- Works on any HTML file, not just SingleFile snapshots
-- Images are silently removed (alt text, captions, surrounding figures all stripped)
-- Inline formatting (`<strong>`, `<em>`, `<a>`, `<code>`, etc.) is preserved as plain text
-- Run `html-highlight` first to mark passages, then convert to get a marked-up text version — `<mark>` tags render as plain text in the output
+- Works best on SingleFile snapshots, but handles any HTML page
+- Images (including alt text, captions, surrounding figures) are completely removed
+- Inline formatting (`<strong>`, `<em>`, `<a>`, `<code>`) is preserved as plain text content
+- Readability's `charThreshold` is set to 150 to minimise boilerplate leakage
+- Run `html-highlight` first to mark passages, then convert — `<mark>` tags render as plain text in the output
