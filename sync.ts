@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import { sanitize } from "./sanitize";
 import type {
   ApiGet,
@@ -23,6 +24,7 @@ export interface SyncOptions {
   tag?: string;
   log: Logger;
   delay?: number;
+  skipTxt?: boolean;
 }
 
 export interface CleanOptions {
@@ -41,6 +43,7 @@ export async function sync({
   tag = "Offline",
   log: logger,
   delay = 200,
+  skipTxt = false,
 }: SyncOptions): Promise<SyncLogEntry[]> {
   fs.mkdirSync(snapshotDir, { recursive: true });
   const existing = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")));
@@ -99,6 +102,31 @@ export async function sync({
       await downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath);
       const size = fs.statSync(filepath).size;
       logger.info(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
+
+      // Generate .txt alongside .html using the html-to-txt converter
+      const txtFilepath = filepath.replace(/\.html$/, ".txt");
+      if (fs.existsSync(txtFilepath)) {
+        fs.unlinkSync(txtFilepath);
+      }
+      if (!skipTxt) {
+        try {
+          let convertScript = path.resolve(__dirname, ".agents/skills/html-to-txt/convert.ts");
+          if (!fs.existsSync(convertScript)) {
+            const cwdScript = path.resolve(process.cwd(), ".agents/skills/html-to-txt/convert.ts");
+            if (fs.existsSync(cwdScript)) convertScript = cwdScript;
+          }
+          if (fs.existsSync(convertScript)) {
+            execSync(`npx tsx "${convertScript}" "${filepath}" --out "${txtFilepath}" --width 0 --title "${bm.title || safeTitle}" --url "${(bm.url || "").replace(/"/g, '\\"')}" --tags "${(bm.tag_names || []).join(",")}"`, {
+              stdio: "pipe",
+              timeout: 30000,
+            });
+            const txtSize = fs.statSync(txtFilepath).size;
+            logger.info(`[${i + 1}/${bookmarks.length}] TXT: ${path.basename(txtFilepath)} (${(txtSize / 1024).toFixed(0)} KB)`);
+          }
+        } catch (e) {
+          logger.warn(`[${i + 1}/${bookmarks.length}] TXT conversion skipped for ${safeTitle}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       log.push({
         status: "ok",
         title: safeTitle,
@@ -162,7 +190,8 @@ export async function clean({
   log: logger,
 }: CleanOptions): Promise<{ removed: string[] }> {
   fs.mkdirSync(snapshotDir, { recursive: true });
-  const existing = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html"));
+  const allFiles = fs.readdirSync(snapshotDir);
+  const htmlFiles = allFiles.filter((f) => f.endsWith(".html"));
 
   const bookmarks: LinkdingBookmark[] = [];
   let url: string | null = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
@@ -179,12 +208,20 @@ export async function clean({
   }
   const removed: string[] = [];
 
-  for (const f of existing) {
+  // Remove orphan .html files, and their .txt counterparts
+  for (const f of htmlFiles) {
     const match = f.match(/-(\d+)\.html$/);
     if (!match || !activeIds.has(match[1])) {
       fs.unlinkSync(path.join(snapshotDir, f));
       removed.push(f);
       logger.info(`CLEAN: removed ${f}`);
+      // Remove associated .txt
+      const txtF = f.replace(/\.html$/, ".txt");
+      if (allFiles.includes(txtF)) {
+        fs.unlinkSync(path.join(snapshotDir, txtF));
+        removed.push(txtF);
+        logger.info(`CLEAN: removed ${txtF}`);
+      }
     }
   }
 

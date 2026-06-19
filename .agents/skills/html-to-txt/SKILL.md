@@ -8,23 +8,24 @@ user-invocable: true
 
 Converts SingleFile HTML snapshots into clean `.txt` files suitable for e-readers.
 
-**Uses Mozilla Readability** (Firefox Reader Mode algorithm) to identify the main article content, stripping navigation, sidebars, ads, cookie banners, and other boilerplate before rendering as plain text.
+**Uses Mozilla Readability** (Firefox Reader Mode algorithm) to extract the main article content, stripping navigation, sidebars, ads, cookie banners, and other boilerplate.
 
 **What it does:**
-- Extracts the main article body via Mozilla Readability (same engine as Firefox Reader Mode)
-- Renders paragraphs, headings, lists, and blockquotes as readable text
-- Strips all images, figures, SVGs, videos, audio, and embeds
-- Removes navigation, sidebars, footers, cookie banners, and related-content widgets
-- Filters common boilerplate lines (copyright, privacy, sign-up prompts)
-- Word-wraps at a configurable column width (default 80)
-- Saves as `.txt` alongside the original HTML file
+- Extracts article body via Mozilla Readability
+- Renders headings with `#` / `##` / `###` markers
+- Shows links as `text [url]`
+- Preserves blockquotes with `> ` prefix, lists with `•` / `1.`
+- Indents code blocks with 2 spaces
+- Strips all images, figures, SVGs, videos, audio
+- Frontmatter: `Title:`, `URL:`, `Tags:` from linkding metadata
+- Word-wraps at configurable column width (default 80)
 
 **Dependencies:** `@mozilla/readability`, `jsdom` (already in project devDependencies).
 
 ## Usage
 
 ```bash
-npx tsx /root/linkding-snapshot-helper/.agents/skills/html-to-txt/convert.ts /path/to/file.html
+npx tsx convert.ts /path/to/file.html [options]
 ```
 
 Output: `/path/to/file.txt` (same name, `.txt` extension)
@@ -35,6 +36,15 @@ Output: `/path/to/file.txt` (same name, `.txt` extension)
 |------|-------------|
 | `--out FILE` | Write to a specific path instead of auto-naming |
 | `--width N` | Wrap text at N columns (default: 80; set to 0 to disable) |
+| `--title TEXT` | Bookmark title (shown in frontmatter and as `# heading`) |
+| `--url URL` | Bookmark URL (shown in frontmatter) |
+| `--tags TAG1,TAG2` | Comma-separated tags (shown in frontmatter) |
+
+## Cleaning up
+
+- check that the output .txt file is readable
+- check that the .txt file doesnt contain garbage unreadable or encoded text
+- check that the front matter is valid
 
 ## Examples
 
@@ -55,7 +65,7 @@ npx tsx convert.ts article.html --width 0
 ## Notes
 
 - Works best on SingleFile snapshots, but handles any HTML page
-- Images (including alt text, captions, surrounding figures) are completely removed
-- Inline formatting (`<strong>`, `<em>`, `<a>`, `<code>`) is preserved as plain text content
+- During `sync`, the converter runs automatically with bookmark metadata (title, URL, tags)
+- Images (including alt text, captions, figures) are completely removed
+- Inline formatting (`<strong>`, `<em>`, `<code>`) is preserved as plain text content
 - Readability's `charThreshold` is set to 150 to minimise boilerplate leakage
-- Run `html-highlight` first to mark passages, then convert — `<mark>` tags render as plain text in the output

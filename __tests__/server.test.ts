@@ -27,6 +27,74 @@ describe("Express server", () => {
     app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: noopSync, logger: silentLog });
   });
 
+  it("serves static TXT files from snapshot directory", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "test-page.txt"), "hello text");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/test-page.txt");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("hello text");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "test-page.txt"));
+  });
+
+  it("returns 404 for missing txt files", async () => {
+    const res = await request(app).get("/nonexistent.txt");
+    expect(res.status).toBe(404);
+  });
+
+  it("shows TXT download link in index when .txt file exists", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "article-txt.html"), "<html>a</html>");
+    fs.writeFileSync(path.join(FIXTURE_DIR, "article-txt.txt"), "text version");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("TXT");
+    expect(res.text).toContain('href="article-txt.txt"');
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "article-txt.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "article-txt.txt"));
+  });
+
+  it("ZIP download includes .txt files", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "page-zip.html"), "<html>p</html>");
+    fs.writeFileSync(path.join(FIXTURE_DIR, "page-zip.txt"), "text content");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/download.zip").buffer(true).parse((res, callback) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => callback(null, Buffer.concat(chunks)));
+    });
+    expect(res.status).toBe(200);
+
+    fs.mkdirSync(TMP_DIR, { recursive: true });
+    const zipPath = path.join(TMP_DIR, "out.zip");
+    fs.writeFileSync(zipPath, res.body);
+    execSync(`unzip -o ${zipPath} -d ${TMP_DIR}/txt_out`, { stdio: "pipe" });
+
+    const extracted = fs.readdirSync(path.join(TMP_DIR, "txt_out"));
+    expect(extracted).toContain("page-zip.html");
+    expect(extracted).toContain("page-zip.txt");
+    expect(fs.readFileSync(path.join(TMP_DIR, "txt_out", "page-zip.txt"), "utf8")).toBe("text content");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "page-zip.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "page-zip.txt"));
+    fs.rmSync(TMP_DIR, { recursive: true, force: true });
+  });
+
+  it("POST /delete also removes the .txt counterpart", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "pair.html"), "<html>x</html>");
+    fs.writeFileSync(path.join(FIXTURE_DIR, "pair.txt"), "text x");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/delete").send("file=pair.html");
+    expect(res.status).toBe(302);
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "pair.html"))).toBe(false);
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "pair.txt"))).toBe(false);
+  });
+
   it("serves static HTML files from snapshot directory", async () => {
     const res = await request(app).get("/test-page.html");
     expect(res.status).toBe(200);
@@ -99,7 +167,8 @@ describe("Express server", () => {
     execSync(`unzip -o ${zipPath} -d ${TMP_DIR}/out`, { stdio: "pipe" });
 
     const extracted = fs.readdirSync(path.join(TMP_DIR, "out")).sort();
-    expect(extracted).toEqual(["index.html", "test-page.html"]);
+    expect(extracted).toContain("index.html");
+    expect(extracted).toContain("test-page.html");
     expect(fs.readFileSync(path.join(TMP_DIR, "out", "test-page.html"), "utf8")).toBe("<html>hello</html>");
     expect(fs.readFileSync(path.join(TMP_DIR, "out", "index.html"), "utf8")).toContain("test-page");
 

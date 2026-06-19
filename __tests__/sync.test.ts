@@ -82,6 +82,7 @@ function runSync(bookmarks: LinkdingBookmark[], assets?: Record<number, Linkding
     downloadFile: makeDownloader(),
     tag: opts.tag || "Offline",
     log: silentLog,
+    skipTxt: true,
   });
 }
 
@@ -266,7 +267,19 @@ describe("clean", () => {
     expect(result.removed).toEqual(["Orphan-99.html"]);
   });
 
-  it("removes stale entries from meta.json", async () => {
+  it("clean removes .txt file when .html is orphaned", async () => {
+    fs.writeFileSync(path.join(TMP, "Orphan-99.html"), "<html>old</html>");
+    fs.writeFileSync(path.join(TMP, "Orphan-99.txt"), "orphan text");
+
+    const result = await runClean([]);
+
+    expect(fs.existsSync(path.join(TMP, "Orphan-99.html"))).toBe(false);
+    expect(fs.existsSync(path.join(TMP, "Orphan-99.txt"))).toBe(false);
+    expect(result.removed).toContain("Orphan-99.html");
+    expect(result.removed).toContain("Orphan-99.txt");
+  });
+
+  it("clean removes stale entries from meta.json", async () => {
     fs.writeFileSync(path.join(TMP, "Keep-1.html"), "<html>a</html>");
     fs.writeFileSync(path.join(TMP, "Gone-2.html"), "<html>b</html>");
     const meta = {
@@ -357,6 +370,30 @@ describe("clean", () => {
     const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
     expect(meta["Page-1.html"].unread).toBe(true);
   });
+
+  it("generates .txt file alongside .html when skipTxt is false", async () => {
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Txt Test" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "<html><body><p>Hello world</p></body></html>" };
+
+    linkding.bookmarks = bookmarks;
+    linkding.assets = assets;
+    linkding.downloads = downloads;
+    const base = "https://linkding.test";
+    await sync({
+      base,
+      snapshotDir: TMP,
+      apiGet: makeApi(base),
+      downloadFile: makeDownloader(),
+      log: silentLog,
+      skipTxt: false,
+    });
+
+    expect(fs.existsSync(path.join(TMP, "Txt Test-1.html"))).toBe(true);
+    expect(fs.existsSync(path.join(TMP, "Txt Test-1.txt"))).toBe(true);
+    const txtContent = fs.readFileSync(path.join(TMP, "Txt Test-1.txt"), "utf8");
+    expect(txtContent).toContain("Hello world");
+  }, 30000);
 
   it("clean updates unread state for surviving bookmarks", async () => {
     fs.writeFileSync(path.join(TMP, "Page-1.html"), "<html>a</html>");

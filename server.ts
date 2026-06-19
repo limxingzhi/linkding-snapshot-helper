@@ -54,11 +54,14 @@ function extractDomain(url: string): string {
 }
 
 function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean): string {
-  const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+  const htmlFiles = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+  const txtFiles = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".txt")));
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta: MetaRecord = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
-  const rows = files.map((f) => {
+  const rows = htmlFiles.map((f) => {
     const name = f.replace(/-\d+\.html$/, "");
+    const txtF = f.replace(/\.html$/, ".txt");
+    const hasTxt = txtFiles.has(txtF);
     const bm = meta[f];
     const bmLink = bm
       ? `<a href="${esc(bm.url)}" target="_blank" style="color:${Colors.green}">#${bm.id}</a>`
@@ -76,7 +79,10 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean)
       : isTrusted
         ? `<form method="POST" action="/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${Colors.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
         : "";
-    return `<tr class="${readClass}" style="border-bottom:1px solid ${Colors.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${firstCell}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${Colors.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${domainCell}</td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
+    const txtLink = hasTxt
+      ? `<a href="${esc(txtF)}" style="display:inline-block;margin-left:8px;font-size:11px;color:${Colors.comment};text-transform:uppercase;letter-spacing:0.5px;border:1px solid ${Colors.comment};border-radius:3px;padding:1px 6px">TXT</a>`
+      : "";
+    return `<tr class="${readClass}" style="border-bottom:1px solid ${Colors.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${firstCell}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${Colors.orange}">${esc(name)}</a>${txtLink}</td><td style="padding:6px 16px 6px 12px">${domainCell}</td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -105,7 +111,7 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean)
   <div style="max-width:960px;margin:0 auto;padding:32px 24px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap">
       <h1 style="font-size:22px;font-weight:700;color:${Colors.fg}">Snapshots</h1>
-      <span style="color:${Colors.comment};font-size:13px">${files.length}</span>
+      <span style="color:${Colors.comment};font-size:13px">${htmlFiles.length}</span>
       <div style="flex:1;min-width:8px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="/download.zip" class="btn" style="background:${Colors.green};color:${Colors.bg}">Download ZIP</a>
@@ -156,9 +162,14 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
   let zipCache: ZipCache | null = null;
 
   function zipFileHash(): string {
-    const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+    const files = listSnapshotFiles(snapshotDir);
     const parts = files.map((f) => `${f}:${fs.statSync(path.join(snapshotDir, f)).mtimeMs}`);
     return parts.join("|");
+  }
+
+  function listSnapshotFiles(dir: string): string[] {
+    const names = fs.readdirSync(dir);
+    return names.filter((f) => f.endsWith(".html") || f.endsWith(".txt")).sort();
   }
 
   function invalidateZipCache(): void {
@@ -183,7 +194,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
   });
 
   app.use((req: Request, res: Response, next: NextFunction): void => {
-    if (req.path.endsWith(".html")) {
+    if (req.path.endsWith(".html") || req.path.endsWith(".txt")) {
       express.static(snapshotDir)(req, res, next);
     } else {
       next();
@@ -202,7 +213,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
       res.type("application/zip").attachment("snapshots.zip").send(zipCache.buffer);
       return;
     }
-    const files = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
+    const files = listSnapshotFiles(snapshotDir);
     logger.info(`${ip} - ZIP download requested (${files.length} files)`);
     res.type("application/zip").attachment("snapshots.zip");
     const archive = archiver("zip", { zlib: { level: 9 } });
@@ -258,6 +269,12 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     const filePath = path.join(snapshotDir, file);
     if (!fs.existsSync(filePath)) { res.status(404).type("text/plain").send("File not found\n"); return; }
     fs.unlinkSync(filePath);
+    // Also remove the .txt counterpart if it exists
+    const txtPath = filePath.replace(/\.html$/, ".txt");
+    if (filePath !== txtPath && fs.existsSync(txtPath)) {
+      fs.unlinkSync(txtPath);
+      logger.info(`Deleted: ${path.basename(txtPath)}`);
+    }
     const metaPath = path.join(snapshotDir, "meta.json");
     if (fs.existsSync(metaPath)) {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
