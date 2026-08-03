@@ -1,11 +1,19 @@
-const fs = require("fs");
-const path = require("path");
-const { sync, clean } = require("../sync");
+import fs from "fs";
+import path from "path";
+import { sync, clean } from "../sync";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import type { ApiGet, DownloadFile, Logger, LinkdingBookmark, LinkdingAsset } from "../types";
 
-const silentLog = { info: () => {}, warn: () => {}, error: () => {} };
+const silentLog: Logger = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
 const TMP = path.join(__dirname, "__fixtures__", "sync_tmp");
 
-let linkding;
+interface LinkdingState {
+  bookmarks: LinkdingBookmark[];
+  assets: Record<number, LinkdingAsset[]>;
+  downloads: Record<number, string>;
+}
+
+let linkding: LinkdingState;
 
 beforeEach(() => {
   fs.mkdirSync(TMP, { recursive: true });
@@ -20,8 +28,8 @@ afterEach(() => {
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
-function makeApi(base) {
-  return async function apiGet(url) {
+function makeApi(base: string): ApiGet {
+  return async function apiGet(url: string) {
     const bookmarksPath = `${base}/api/bookmarks/`;
     if (url.startsWith(bookmarksPath) && !url.includes("/assets/")) {
       const u = new URL(url);
@@ -41,14 +49,14 @@ function makeApi(base) {
     const assetMatch = url.match(/\/api\/bookmarks\/(\d+)\/assets\//);
     if (assetMatch) {
       const bmId = parseInt(assetMatch[1], 10);
-      return { results: linkding.assets[bmId] || [] };
+      return { results: linkding.assets[bmId] || [], next: null, count: (linkding.assets[bmId] || []).length };
     }
     throw new Error(`Unexpected API call: ${url}`);
   };
 }
 
-function makeDownloader() {
-  return async function downloadFile(url, dest) {
+function makeDownloader(): DownloadFile {
+  return async function downloadFile(url: string, dest: string) {
     const dlMatch = url.match(/\/api\/bookmarks\/(\d+)\/assets\/(\d+)\/download\//);
     if (dlMatch) {
       const assetId = parseInt(dlMatch[2], 10);
@@ -62,7 +70,7 @@ function makeDownloader() {
   };
 }
 
-function runSync(bookmarks, assets, downloads, opts = {}) {
+function runSync(bookmarks: LinkdingBookmark[], assets?: Record<number, LinkdingAsset[]>, downloads?: Record<number, string>, opts: { tag?: string; retries?: number; retryDelay?: number; downloadFile?: DownloadFile } = {}) {
   linkding.bookmarks = bookmarks;
   linkding.assets = assets || {};
   linkding.downloads = downloads || {};
@@ -71,9 +79,12 @@ function runSync(bookmarks, assets, downloads, opts = {}) {
     base,
     snapshotDir: TMP,
     apiGet: makeApi(base),
-    downloadFile: makeDownloader(),
+    downloadFile: opts.downloadFile || makeDownloader(),
     tag: opts.tag || "Offline",
     log: silentLog,
+    skipTxt: true,
+    retries: opts.retries,
+    retryDelay: opts.retryDelay,
   });
 }
 
@@ -149,7 +160,7 @@ describe("sync", () => {
   });
 
   it("continues on errors for individual bookmarks", async () => {
-    const bookmarks = [
+    const bookmarks: LinkdingBookmark[] = [
       { id: 1, title: "Bad" },
       { id: 2, title: "Good" },
     ];
@@ -158,18 +169,18 @@ describe("sync", () => {
       2: [{ id: 20, asset_type: "snapshot" }],
     };
 
-    const apiGet = async (url) => {
+    const apiGet: ApiGet = async (url: string) => {
       if (url.includes("/bookmarks/1/")) throw new Error("API error");
       const base = "https://linkding.test";
       if (url.startsWith(`${base}/api/bookmarks/`) && !url.includes("/assets/")) {
         return { results: bookmarks, next: null, count: 2 };
       }
       if (url.includes("/bookmarks/2/assets/")) {
-        return { results: assets[2] };
+        return { results: assets[2], next: null, count: 1 };
       }
       throw new Error(`Unexpected: ${url}`);
     };
-    const downloadFile = async (url, dest) => {
+    const downloadFile: DownloadFile = async (url: string, dest: string) => {
       if (url.includes("/bookmarks/2/")) {
         fs.writeFileSync(dest, "good content");
       }
@@ -184,6 +195,58 @@ describe("sync", () => {
     });
 
     expect(fs.readFileSync(path.join(TMP, "Good-2.html"), "utf8")).toBe("good content");
+  });
+
+  it("retries transient download failures and succeeds", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    let calls = 0;
+    const downloadFile: DownloadFile = async (_url: string, dest: string) => {
+      calls++;
+      if (calls < 3) {
+        const e: NodeJS.ErrnoException = new Error("socket hang up");
+        e.code = "ECONNRESET";
+        throw e;
+      }
+      fs.writeFileSync(dest, "content");
+    };
+
+    await runSync(bookmarks, assets, {}, { downloadFile, retryDelay: 5 });
+
+    expect(fs.readFileSync(path.join(TMP, "Page-1.html"), "utf8")).toBe("content");
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after retries for persistent download failures", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    let calls = 0;
+    const downloadFile: DownloadFile = async () => {
+      calls++;
+      const e: NodeJS.ErrnoException = new Error("socket hang up");
+      e.code = "ECONNRESET";
+      throw e;
+    };
+
+    const log = await runSync(bookmarks, assets, {}, { downloadFile, retryDelay: 5 });
+
+    expect(calls).toBe(3);
+    expect(log[0]).toMatchObject({ status: "error" });
+  });
+
+  it("does not retry non-transient download errors", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    let calls = 0;
+    const downloadFile: DownloadFile = async () => {
+      calls++;
+      throw new Error("HTTP 403 from url");
+    };
+
+    const log = await runSync(bookmarks, assets, {}, { downloadFile, retryDelay: 5 });
+
+    expect(calls).toBe(1);
+    expect(log[0]).toMatchObject({ status: "error" });
   });
 
   it("returns log of all operations", async () => {
@@ -236,7 +299,7 @@ describe("sync", () => {
 describe("clean", () => {
   const base = "https://linkding.test";
 
-  function runClean(bookmarks) {
+  function runClean(bookmarks?: LinkdingBookmark[]) {
     linkding.bookmarks = bookmarks || [];
     return clean({
       base,
@@ -258,7 +321,19 @@ describe("clean", () => {
     expect(result.removed).toEqual(["Orphan-99.html"]);
   });
 
-  it("removes stale entries from meta.json", async () => {
+  it("clean removes .txt file when .html is orphaned", async () => {
+    fs.writeFileSync(path.join(TMP, "Orphan-99.html"), "<html>old</html>");
+    fs.writeFileSync(path.join(TMP, "Orphan-99.txt"), "orphan text");
+
+    const result = await runClean([]);
+
+    expect(fs.existsSync(path.join(TMP, "Orphan-99.html"))).toBe(false);
+    expect(fs.existsSync(path.join(TMP, "Orphan-99.txt"))).toBe(false);
+    expect(result.removed).toContain("Orphan-99.html");
+    expect(result.removed).toContain("Orphan-99.txt");
+  });
+
+  it("clean removes stale entries from meta.json", async () => {
     fs.writeFileSync(path.join(TMP, "Keep-1.html"), "<html>a</html>");
     fs.writeFileSync(path.join(TMP, "Gone-2.html"), "<html>b</html>");
     const meta = {
@@ -295,7 +370,7 @@ describe("clean", () => {
   });
 
   it("stores articleUrl in meta from bookmark", async () => {
-    const bookmarks = [{ id: 1, title: "Page", url: "https://example.com/article" }];
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Page", url: "https://example.com/article" }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
     const downloads = { 10: "content" };
 
@@ -307,7 +382,7 @@ describe("clean", () => {
 
   it("stores articleUrl in meta for skipped bookmarks on re-sync", async () => {
     fs.writeFileSync(path.join(TMP, "Page-1.html"), "existing");
-    const bookmarks = [{ id: 1, title: "Page", url: "https://example.com/article", tag_names: ["tag1"] }];
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Page", url: "https://example.com/article", tag_names: ["tag1"] }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
     const downloads = { 10: "content" };
 
@@ -318,7 +393,7 @@ describe("clean", () => {
   });
 
   it("stores unread=true in meta for unread bookmarks", async () => {
-    const bookmarks = [{ id: 1, title: "Page", unread: true }];
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Page", unread: true }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
     const downloads = { 10: "content" };
 
@@ -329,7 +404,7 @@ describe("clean", () => {
   });
 
   it("stores unread=false in meta for read bookmarks", async () => {
-    const bookmarks = [{ id: 1, title: "Page", unread: false }];
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Page", unread: false }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
     const downloads = { 10: "content" };
 
@@ -340,7 +415,7 @@ describe("clean", () => {
   });
 
   it("defaults to unread=true when field is absent", async () => {
-    const bookmarks = [{ id: 1, title: "Page" }];
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Page" }];
     const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
     const downloads = { 10: "content" };
 
@@ -349,6 +424,30 @@ describe("clean", () => {
     const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
     expect(meta["Page-1.html"].unread).toBe(true);
   });
+
+  it("generates .txt file alongside .html when skipTxt is false", async () => {
+    const bookmarks: LinkdingBookmark[] = [{ id: 1, title: "Txt Test" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    const downloads = { 10: "<html><body><p>Hello world</p></body></html>" };
+
+    linkding.bookmarks = bookmarks;
+    linkding.assets = assets;
+    linkding.downloads = downloads;
+    const base = "https://linkding.test";
+    await sync({
+      base,
+      snapshotDir: TMP,
+      apiGet: makeApi(base),
+      downloadFile: makeDownloader(),
+      log: silentLog,
+      skipTxt: false,
+    });
+
+    expect(fs.existsSync(path.join(TMP, "Txt Test-1.html"))).toBe(true);
+    expect(fs.existsSync(path.join(TMP, "Txt Test-1.txt"))).toBe(true);
+    const txtContent = fs.readFileSync(path.join(TMP, "Txt Test-1.txt"), "utf8");
+    expect(txtContent).toContain("Hello world");
+  }, 30000);
 
   it("clean updates unread state for surviving bookmarks", async () => {
     fs.writeFileSync(path.join(TMP, "Page-1.html"), "<html>a</html>");

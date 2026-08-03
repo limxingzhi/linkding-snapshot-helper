@@ -4,17 +4,19 @@ Express 5 server that syncs SingleFile snapshots from Linkding bookmarks and ser
 
 ## Commands
 
-- `npm start` — `node server.js`
+- `npm start` — `tsx server.ts` (TS via tsx, no compile step needed)
 - `npm test` — `vitest` (watch); `npm run test:run` — single run
-- No build step. CommonJS only (`"type": "commonjs"`).
+- `npm run typecheck` — `tsc --noEmit`
+- CommonJS output (`"type": "commonjs"`). tsconfig has `outDir: "dist"` but no explicit build script.
 
 ## Architecture
 
 ```
-server.js    → Express app + CLI entry point. Exports `createApp` for testing.
-sync.js      → `sync()` and `clean()` — exports both for testing.
-sanitize.js  → `sanitize(title)` → safe filename
-logger.js    → `createLogger(logDir)` → rotating file logger
+server.ts    → Express app + CLI entry point. Exports `createApp` for testing.
+sync.ts      → `sync()` and `clean()` — exports both for testing.
+sanitize.ts  → `sanitize(title)` → safe filename
+logger.ts    → `createLogger(logDir)` → rotating file logger
+types.ts     → Shared TypeScript types (Logger, ApiGet, LinkdingBookmark, etc.)
 ```
 
 **Control flow**: `main()` reads env, creates logger + `apiGet`/`downloadFile` via raw `http`/`https`, optionally runs `sync()` on start, then `createApp()` starts Express.
@@ -29,13 +31,14 @@ logger.js    → `createLogger(logDir)` → rotating file logger
 - **Linkding API**: `Authorization: Token {token}`. Paginated via `next` links (`?q=%23{tag}&limit=100`).
 - **Helmet** with CSP disabled (snapshots load external resources).
 - **ZIP cache**: in-memory, keyed on filename+mtime hash. Invalidated after sync or delete.
-- **30s timeout** on all outbound requests.
+- **30s timeout** on API requests; **120s socket idle timeout** on snapshot downloads.
+- **Transient error retry**: `sync()` retries apiGet/download calls on `ECONNRESET`/`ETIMEDOUT`/`EPIPE`/`ECONNREFUSED`/`ECONNABORTED`/`socket hang up` with exponential backoff (`retries`=2, `retryDelay`=1000ms base, both injectable via `SyncOptions`). No `Connection: close` header; error paths drain the socket so keep-alive connections stay reusable.
 
 ## Testing
 
 - **Vitest** with `globals: true`, `environment: 'node'`. Supertest for HTTP.
-- Inject fake `apiGet`/`downloadFile`/`syncFn`. Use `{ info:()=>{}, warn:()=>{}, error:()=>{} }` for silent logging.
-- Temp dirs in `__tests__/__fixtures__/`, cleaned up in `afterEach`/`afterAll`.
+- Inject fake `apiGet`/`downloadFile`/`syncFn`. Use `{ info:()=>{}, warn:()=>{}, error:()=>{}, toExternal:()=>{} }` for silent logging.
+- Per-test temp dirs under `__tests__/__fixtures__/` (e.g. `sync_tmp`, `snapshots`, `zip_tmp`), cleaned up in `afterEach`/`afterAll`.
 
 ## Gotchas
 

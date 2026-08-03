@@ -4,3 +4,5 @@ node_modules/
 coverage/
 meta.json
 server.log
+dist/
+external-access.log
