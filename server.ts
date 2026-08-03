@@ -58,25 +58,35 @@ function normalizeBasePath(raw: string | undefined): string {
   return trimmed === "" ? "" : trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
-function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string): string {
+function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string, linkdingDisplayUrl: string): string {
   const htmlFiles = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const txtFiles = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".txt")));
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta: MetaRecord = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
+  const overridesPath = path.join(snapshotDir, "overrides.json");
+  let overrides: Record<string, string> = {};
+  if (fs.existsSync(overridesPath)) {
+    try {
+      overrides = JSON.parse(fs.readFileSync(overridesPath, "utf8"));
+    } catch {
+      overrides = {};
+    }
+  }
   const rows = htmlFiles.map((f) => {
     const name = f.replace(/-\d+\.html$/, "");
     const txtF = f.replace(/\.html$/, ".txt");
     const hasTxt = txtFiles.has(txtF);
     const bm = meta[f];
     const bmLink = bm
-      ? `<a href="${esc(bm.url)}" target="_blank" style="color:${Colors.green}">#${bm.id}</a>`
+      ? `<a href="${esc(linkdingDisplayUrl ? `${linkdingDisplayUrl}/bookmarks?details=${bm.id}` : bm.url)}" target="_blank" style="color:${Colors.green}">#${bm.id}</a>`
       : "";
     const tags = bm && bm.tags && bm.tags.length
       ? bm.tags.filter((t) => t !== filterTag).map((t) => `<span style="display:inline-block;font-family:'Fira Code',monospace;font-size:11px;padding:2px 8px;border-radius:3px;margin-right:4px;background:${Colors.bgLighter};color:${Colors.yellow}">${esc(t)}</span>`).join("")
       : "";
     const isUnread = bm ? bm.unread !== false : true;
-    const domainCell = bm && bm.articleUrl
-      ? `<a href="${esc(bm.articleUrl)}" target="_blank" style="color:#8a8a7a;font-size:12px">${esc(extractDomain(bm.articleUrl))}</a>`
+    const displayUrl = (bm && overrides[String(bm.id)]) || (bm && bm.articleUrl) || "";
+    const domainCell = displayUrl
+      ? `<a href="${esc(displayUrl)}" target="_blank" style="color:#8a8a7a;font-size:12px">${esc(extractDomain(displayUrl))}</a>`
       : "";
     const readClass = isUnread ? "" : " is-read";
     const firstCell = bm
@@ -164,6 +174,7 @@ export interface CreateAppOptions {
 export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: CreateAppOptions) {
   const app = express();
   const basePath = normalizeBasePath(process.env.BASE_PATH);
+  const linkdingDisplayUrl = (process.env.LINKDING_DISPLAY_URL || "").trim().replace(/\/+$/, "");
   const router = express.Router();
   let syncing = false;
   let zipCache: ZipCache | null = null;
@@ -209,7 +220,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
   });
 
   router.get("/", trustCheck, (req: Request, res: Response) => {
-    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!, basePath));
+    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!, basePath, linkdingDisplayUrl));
   });
 
   router.get("/download.zip", (req: Request, res: Response) => {
@@ -238,7 +249,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     });
     archive.pipe(pass);
     pass.pipe(res);
-    archive.append(renderIndex(snapshotDir, tag, false, basePath), { name: "index.html" });
+    archive.append(renderIndex(snapshotDir, tag, false, basePath, linkdingDisplayUrl), { name: "index.html" });
     for (const f of files) {
       archive.file(path.join(snapshotDir, f), { name: f });
     }
