@@ -380,6 +380,49 @@ describe("Express server", () => {
     fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
   });
 
+  it("uses LINKDING_DISPLAY_URL for bookmark ID links", async () => {
+    process.env.LINKDING_DISPLAY_URL = "https://links.example.com";
+    const meta = { "test-page.html": { id: 69, tags: [], url: "https://linkd.example/bookmarks?q=%23Offline&details=69" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('href="https://links.example.com/bookmarks?details=69"');
+    expect(res.text).not.toContain("linkd.example");
+
+    delete process.env.LINKDING_DISPLAY_URL;
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("falls back to meta url when LINKDING_DISPLAY_URL is unset", async () => {
+    const meta = { "test-page.html": { id: 7, tags: [], url: "https://linkd.example/bookmarks?details=7" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('href="https://linkd.example/bookmarks?details=7"');
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("uses display URL override from overrides.json", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://linkd.example/bookmarks", articleUrl: "https://example.com/article" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    fs.writeFileSync(path.join(FIXTURE_DIR, "overrides.json"), JSON.stringify({ "1": "https://real.example.net/read" }));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('href="https://real.example.net/read"');
+    expect(res.text).toContain("real.example.net");
+    expect(res.text).not.toContain('href="https://example.com/article"');
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "overrides.json"));
+  });
+
   it("shows empty domain cell when articleUrl is missing", async () => {
     const meta = { "test-page.html": { id: 1, tags: [], url: "https://linkd.example/bookmarks" } };
     fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));

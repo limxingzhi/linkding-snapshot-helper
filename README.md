@@ -48,6 +48,7 @@ All config is via environment variables (set them in `.env`):
 | `SYNC_ON_START` | `true` | Sync snapshots on startup |
 | `SNAPSHOT_DIR` | `/snapshots` | Directory to store snapshots |
 | `BASE_PATH` | (empty) | Serve the app under a path prefix, e.g. `BASE_PATH=/snapd` → `http://host:8080/snapd/` |
+| `LINKDING_DISPLAY_URL` | (empty) | Public URL for Linkding, used for the `#id` links in the index instead of the internal `LINKDING_URL` host. The link becomes `<display>/bookmarks?details=<id>` |
 
 ## Endpoints
 
@@ -68,6 +69,16 @@ All endpoints are served under `BASE_PATH` when set (e.g. `GET /snapd/`, `GET /s
 5. Serves the downloaded files via Express
 
 Syncs are idempotent: running `/sync` again only downloads new snapshots.
+
+## Display URL overrides
+
+The Domain column in the index links to the URL stored in Linkding. To point a snapshot at a different URL for display only, create `overrides.json` in the snapshot directory, keyed by bookmark ID:
+
+```json
+{ "42": "https://example.com/actual-article" }
+```
+
+Overrides are only used for display/linking in the index; Linkding is never modified and the file survives syncs.
 
 ## Requirements
 
