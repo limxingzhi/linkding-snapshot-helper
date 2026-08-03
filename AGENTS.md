@@ -31,7 +31,8 @@ types.ts     → Shared TypeScript types (Logger, ApiGet, LinkdingBookmark, etc.
 - **Linkding API**: `Authorization: Token {token}`. Paginated via `next` links (`?q=%23{tag}&limit=100`).
 - **Helmet** with CSP disabled (snapshots load external resources).
 - **ZIP cache**: in-memory, keyed on filename+mtime hash. Invalidated after sync or delete.
-- **30s timeout** on all outbound requests.
+- **30s timeout** on API requests; **120s socket idle timeout** on snapshot downloads.
+- **Transient error retry**: `sync()` retries apiGet/download calls on `ECONNRESET`/`ETIMEDOUT`/`EPIPE`/`ECONNREFUSED`/`ECONNABORTED`/`socket hang up` with exponential backoff (`retries`=2, `retryDelay`=1000ms base, both injectable via `SyncOptions`). No `Connection: close` header; error paths drain the socket so keep-alive connections stay reusable.
 
 ## Testing
 

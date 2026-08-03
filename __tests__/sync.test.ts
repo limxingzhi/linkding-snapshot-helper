@@ -70,7 +70,7 @@ function makeDownloader(): DownloadFile {
   };
 }
 
-function runSync(bookmarks: LinkdingBookmark[], assets?: Record<number, LinkdingAsset[]>, downloads?: Record<number, string>, opts: { tag?: string } = {}) {
+function runSync(bookmarks: LinkdingBookmark[], assets?: Record<number, LinkdingAsset[]>, downloads?: Record<number, string>, opts: { tag?: string; retries?: number; retryDelay?: number; downloadFile?: DownloadFile } = {}) {
   linkding.bookmarks = bookmarks;
   linkding.assets = assets || {};
   linkding.downloads = downloads || {};
@@ -79,10 +79,12 @@ function runSync(bookmarks: LinkdingBookmark[], assets?: Record<number, Linkding
     base,
     snapshotDir: TMP,
     apiGet: makeApi(base),
-    downloadFile: makeDownloader(),
+    downloadFile: opts.downloadFile || makeDownloader(),
     tag: opts.tag || "Offline",
     log: silentLog,
     skipTxt: true,
+    retries: opts.retries,
+    retryDelay: opts.retryDelay,
   });
 }
 
@@ -193,6 +195,58 @@ describe("sync", () => {
     });
 
     expect(fs.readFileSync(path.join(TMP, "Good-2.html"), "utf8")).toBe("good content");
+  });
+
+  it("retries transient download failures and succeeds", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    let calls = 0;
+    const downloadFile: DownloadFile = async (_url: string, dest: string) => {
+      calls++;
+      if (calls < 3) {
+        const e: NodeJS.ErrnoException = new Error("socket hang up");
+        e.code = "ECONNRESET";
+        throw e;
+      }
+      fs.writeFileSync(dest, "content");
+    };
+
+    await runSync(bookmarks, assets, {}, { downloadFile, retryDelay: 5 });
+
+    expect(fs.readFileSync(path.join(TMP, "Page-1.html"), "utf8")).toBe("content");
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after retries for persistent download failures", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    let calls = 0;
+    const downloadFile: DownloadFile = async () => {
+      calls++;
+      const e: NodeJS.ErrnoException = new Error("socket hang up");
+      e.code = "ECONNRESET";
+      throw e;
+    };
+
+    const log = await runSync(bookmarks, assets, {}, { downloadFile, retryDelay: 5 });
+
+    expect(calls).toBe(3);
+    expect(log[0]).toMatchObject({ status: "error" });
+  });
+
+  it("does not retry non-transient download errors", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot" }] };
+    let calls = 0;
+    const downloadFile: DownloadFile = async () => {
+      calls++;
+      throw new Error("HTTP 403 from url");
+    };
+
+    const log = await runSync(bookmarks, assets, {}, { downloadFile, retryDelay: 5 });
+
+    expect(calls).toBe(1);
+    expect(log[0]).toMatchObject({ status: "error" });
   });
 
   it("returns log of all operations", async () => {

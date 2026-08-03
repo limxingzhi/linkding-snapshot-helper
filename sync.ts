@@ -25,6 +25,36 @@ export interface SyncOptions {
   log: Logger;
   delay?: number;
   skipTxt?: boolean;
+  retries?: number;
+  retryDelay?: number;
+}
+
+const TRANSIENT_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+]);
+
+export function isTransientError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  if (TRANSIENT_ERROR_CODES.has((e as NodeJS.ErrnoException).code || "")) return true;
+  return /socket hang up/i.test(e.message);
+}
+
+async function withRetry<T>(fn: () => Promise<T>, retries: number, retryDelay: number): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (attempt >= retries || !isTransientError(e)) throw e;
+      await new Promise((r) => setTimeout(r, retryDelay * 2 ** attempt));
+    }
+  }
+  throw lastError;
 }
 
 export interface CleanOptions {
@@ -44,6 +74,8 @@ export async function sync({
   log: logger,
   delay = 200,
   skipTxt = false,
+  retries = 2,
+  retryDelay = 1000,
 }: SyncOptions): Promise<SyncLogEntry[]> {
   fs.mkdirSync(snapshotDir, { recursive: true });
   const existing = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")));
@@ -51,7 +83,8 @@ export async function sync({
   const bookmarks: LinkdingBookmark[] = [];
   let url: string | null = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
   while (url) {
-    const data = BookmarkListResponseSchema.parse(await apiGet(url));
+    const currentUrl = url;
+    const data = BookmarkListResponseSchema.parse(await withRetry(() => apiGet(currentUrl), retries, retryDelay));
     bookmarks.push(...data.results);
     url = data.next;
   }
@@ -68,7 +101,9 @@ export async function sync({
     const filename = `${safeTitle}-${bmId}.html`;
 
     try {
-      const assetsData = AssetListResponseSchema.parse(await apiGet(`${base}/api/bookmarks/${bmId}/assets/`));
+      const assetsData = AssetListResponseSchema.parse(
+        await withRetry(() => apiGet(`${base}/api/bookmarks/${bmId}/assets/`), retries, retryDelay),
+      );
       const snapshots = assetsData.results.filter((a) => a.asset_type === "snapshot");
 
       if (snapshots.length === 0) {
@@ -99,7 +134,7 @@ export async function sync({
         continue;
       }
 
-      await downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath);
+      await withRetry(() => downloadFile(`${base}/api/bookmarks/${bmId}/assets/${assetId}/download/`, filepath), retries, retryDelay);
       const size = fs.statSync(filepath).size;
       logger.info(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
 

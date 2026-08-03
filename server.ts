@@ -295,7 +295,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
 }
 
 function makeApiGet(base: string, token: string): ApiGet {
-  const headers: Record<string, string> = token ? { Authorization: `Token ${token}`, Connection: "close" } : { Connection: "close" };
+  const headers: Record<string, string> = token ? { Authorization: `Token ${token}` } : {};
   const mod = base.startsWith("https") ? https : http;
   return function apiGet(url: string): ReturnType<ApiGet> {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
@@ -327,7 +327,7 @@ function makeApiGet(base: string, token: string): ApiGet {
 }
 
 function makeDownloadFile(base: string, token: string): DownloadFile {
-  const headers: Record<string, string> = token ? { Authorization: `Token ${token}`, Connection: "close" } : { Connection: "close" };
+  const headers: Record<string, string> = token ? { Authorization: `Token ${token}` } : {};
   const mod = base.startsWith("https") ? https : http;
   return function downloadFile(url: string, dest: string): Promise<void> {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
@@ -339,6 +339,7 @@ function makeDownloadFile(base: string, token: string): DownloadFile {
       const req = mod.get(fullUrl, { headers }, (res) => {
         if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
           cleanup();
+          res.resume();
           reject(new Error(`HTTP ${res.statusCode} from ${url}`));
           return;
         }
@@ -352,7 +353,7 @@ function makeDownloadFile(base: string, token: string): DownloadFile {
         cleanup();
         reject(e);
       });
-      req.setTimeout(30000, () => {
+      req.setTimeout(120000, () => {
         req.destroy();
         cleanup();
         reject(new Error(`Request timeout: ${url}`));
