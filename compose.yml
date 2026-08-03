@@ -22,6 +22,7 @@ services:
       - SYNC_ON_START=${SYNC_ON_START:-true}
       - SNAPSHOT_DIR=/snapshots
       - LOG_DIR=/logs
+      - BASE_PATH=${BASE_PATH:-}
     volumes:
       - snapshots:/snapshots
       - logs:/logs

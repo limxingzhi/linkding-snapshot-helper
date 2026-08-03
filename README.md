@@ -47,6 +47,7 @@ All config is via environment variables (set them in `.env`):
 | `PORT` | `8080` | Port to listen on |
 | `SYNC_ON_START` | `true` | Sync snapshots on startup |
 | `SNAPSHOT_DIR` | `/snapshots` | Directory to store snapshots |
+| `BASE_PATH` | (empty) | Serve the app under a path prefix, e.g. `BASE_PATH=/snapd` → `http://host:8080/snapd/` |
 
 ## Endpoints
 
@@ -55,6 +56,8 @@ All config is via environment variables (set them in `.env`):
 | `GET /` | Directory listing of all downloaded snapshots |
 | `GET /<filename>` | Serve a specific snapshot (`.html` only) |
 | `GET /sync` | Re-sync from Linkding (skips already-downloaded files) |
+
+All endpoints are served under `BASE_PATH` when set (e.g. `GET /snapd/`, `GET /snapd/sync`).
 
 ## How it works
 

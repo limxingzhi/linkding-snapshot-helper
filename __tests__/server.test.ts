@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { createApp } from "../server";
 import { execSync } from "child_process";
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import type { Logger, SyncFn } from "../types";
 
 const silentLog: Logger = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
@@ -474,5 +474,93 @@ describe("Express server", () => {
       await request(app).get("/").send();
       expect(calls).toHaveLength(0);
     });
+  });
+});
+
+describe("BASE_PATH routing", () => {
+  afterEach(() => {
+    delete process.env.BASE_PATH;
+  });
+
+  it("serves index at /snapd/ with prefixed action links", async () => {
+    process.env.BASE_PATH = "/snapd";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/snapd/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/snapd/delete"');
+    expect(res.text).toContain('href="/snapd/download.zip"');
+    expect(res.text).toContain('href="/snapd/sync"');
+  });
+
+  it("serves static HTML and TXT files under the base path", async () => {
+    process.env.BASE_PATH = "/snapd";
+    fs.writeFileSync(path.join(FIXTURE_DIR, "prefix-page.txt"), "prefix text");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const htmlRes = await request(app).get("/snapd/test-page.html");
+    expect(htmlRes.status).toBe(200);
+    expect(htmlRes.text).toBe("<html>hello</html>");
+
+    const txtRes = await request(app).get("/snapd/prefix-page.txt");
+    expect(txtRes.status).toBe(200);
+    expect(txtRes.text).toBe("prefix text");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "prefix-page.txt"));
+  });
+
+  it("GET /snapd/sync redirects to /snapd/ after syncing", async () => {
+    process.env.BASE_PATH = "/snapd";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/snapd/sync");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/snapd/");
+  });
+
+  it("POST /snapd/delete removes a file and redirects to /snapd/", async () => {
+    process.env.BASE_PATH = "/snapd";
+    fs.writeFileSync(path.join(FIXTURE_DIR, "prefix-del.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/snapd/delete").send("file=prefix-del.html");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/snapd/");
+    expect(fs.existsSync(path.join(FIXTURE_DIR, "prefix-del.html"))).toBe(false);
+  });
+
+  it("GET /snapd/download.zip returns a zip", async () => {
+    process.env.BASE_PATH = "/snapd";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/snapd/download.zip");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/application\/zip/);
+  });
+
+  it("returns 404 for unprefixed routes when BASE_PATH is set", async () => {
+    process.env.BASE_PATH = "/snapd";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(404);
+  });
+
+  it("normalizes BASE_PATH with trailing slash", async () => {
+    process.env.BASE_PATH = "/snapd/";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/snapd/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/snapd/delete"');
+  });
+
+  it("redirects bare BASE_PATH to BASE_PATH/ so relative links resolve", async () => {
+    process.env.BASE_PATH = "/snapd";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/snapd");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/snapd/");
   });
 });

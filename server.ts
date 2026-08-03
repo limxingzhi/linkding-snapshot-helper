@@ -53,7 +53,12 @@ function extractDomain(url: string): string {
   }
 }
 
-function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean): string {
+function normalizeBasePath(raw: string | undefined): string {
+  const trimmed = (raw || "").trim().replace(/\/+$/, "");
+  return trimmed === "" ? "" : trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string): string {
   const htmlFiles = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const txtFiles = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".txt")));
   const metaPath = path.join(snapshotDir, "meta.json");
@@ -77,7 +82,7 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean)
     const firstCell = bm
       ? `<span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>`
       : isTrusted
-        ? `<form method="POST" action="/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${Colors.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
+        ? `<form method="POST" action="${esc(basePath)}/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${Colors.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
         : "";
     const txtLink = hasTxt
       ? `<a href="${esc(txtF)}" style="display:inline-block;margin-left:8px;font-size:11px;color:${Colors.comment};text-transform:uppercase;letter-spacing:0.5px;border:1px solid ${Colors.comment};border-radius:3px;padding:1px 6px">TXT</a>`
@@ -114,8 +119,8 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean)
       <span style="color:${Colors.comment};font-size:13px">${htmlFiles.length}</span>
       <div style="flex:1;min-width:8px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a href="/download.zip" class="btn" style="background:${Colors.green};color:${Colors.bg}">Download ZIP</a>
-        <a href="/sync" class="btn" style="background:${Colors.magenta};color:${Colors.bg}">Sync</a>
+        <a href="${esc(basePath)}/download.zip" class="btn" style="background:${Colors.green};color:${Colors.bg}">Download ZIP</a>
+        <a href="${esc(basePath)}/sync" class="btn" style="background:${Colors.magenta};color:${Colors.bg}">Sync</a>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -158,6 +163,8 @@ export interface CreateAppOptions {
 
 export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: CreateAppOptions) {
   const app = express();
+  const basePath = normalizeBasePath(process.env.BASE_PATH);
+  const router = express.Router();
   let syncing = false;
   let zipCache: ZipCache | null = null;
 
@@ -193,7 +200,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     next();
   });
 
-  app.use((req: Request, res: Response, next: NextFunction): void => {
+  router.use((req: Request, res: Response, next: NextFunction): void => {
     if (req.path.endsWith(".html") || req.path.endsWith(".txt")) {
       express.static(snapshotDir)(req, res, next);
     } else {
@@ -201,11 +208,11 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     }
   });
 
-  app.get("/", trustCheck, (req: Request, res: Response) => {
-    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!));
+  router.get("/", trustCheck, (req: Request, res: Response) => {
+    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!, basePath));
   });
 
-  app.get("/download.zip", (req: Request, res: Response) => {
+  router.get("/download.zip", (req: Request, res: Response) => {
     const ip = safeIp(req.ip);
     const hash = zipFileHash();
     if (zipCache && zipCache.hash === hash) {
@@ -231,26 +238,25 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     });
     archive.pipe(pass);
     pass.pipe(res);
-    // @ts-expect-error - archiver type mismatch with actual package
-    archive.append(renderIndex(snapshotDir, tag), { name: "index.html" });
+    archive.append(renderIndex(snapshotDir, tag, false, basePath), { name: "index.html" });
     for (const f of files) {
       archive.file(path.join(snapshotDir, f), { name: f });
     }
     archive.finalize();
   });
 
-  app.get("/sync", async (req: Request, res: Response) => {
+  router.get("/sync", async (req: Request, res: Response) => {
     const ip = safeIp(req.ip);
     if (syncing) {
       logger.info(`${ip} - Sync skipped (already in progress)`);
-      return res.redirect("/");
+      return res.redirect(`${basePath}/`);
     }
     syncing = true;
     logger.info(`${ip} - Sync triggered via HTTP`);
     try {
       await syncFn();
       invalidateZipCache();
-      res.redirect("/");
+      res.redirect(`${basePath}/`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error(`Sync failed: ${msg}`);
@@ -260,7 +266,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     }
   });
 
-  app.post("/delete", trustCheck, (req: Request, res: Response) => {
+  router.post("/delete", trustCheck, (req: Request, res: Response) => {
     if (!req.isTrusted) { res.status(403).type("text/plain").send("Forbidden\n"); return; }
     const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includes(".."), { message: "Invalid filename" });
     const parsed = FileSchema.safeParse(req.body.file);
@@ -283,8 +289,20 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     }
     logger.info(`Deleted: ${file}`);
     invalidateZipCache();
-    res.redirect("/");
+    res.redirect(`${basePath}/`);
   });
+
+  if (basePath) {
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.path === basePath) {
+        res.redirect(`${basePath}/`);
+        return;
+      }
+      next();
+    });
+  }
+
+  app.use(basePath || "/", router);
 
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error(`Unhandled error: ${err.message}`);
@@ -393,7 +411,7 @@ function main(): void {
 
   const app = createApp({ snapshotDir, syncFn, tag, logger });
   const server = app.listen(port, "0.0.0.0", () => {
-    logger.info(`Serving snapshots on http://0.0.0.0:${port}/`);
+    logger.info(`Serving snapshots on http://0.0.0.0:${port}${normalizeBasePath(process.env.BASE_PATH)}/`);
   });
   const shutdown = (signal: string): void => {
     logger.info(`Received ${signal}, shutting down`);
