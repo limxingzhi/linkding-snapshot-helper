@@ -1,0 +1,34 @@
+# Demo stack: linkding + linkding-snapshot-helper
+#
+# Start with:
+#   docker compose up -d
+# Then open http://localhost:8080
+#
+# Optional: cp .env.example .env to override LINKDING_URL, LINKDING_TOKEN, etc.
+# If no .env is present, the helper talks to the in-stack linkding service.
+
+services:
+
+  linkding-snapshot-helper:
+    image: ghcr.io/limxingzhi/linkding-snapshot-helper:latest
+    ports:
+      - "8080:8080"
+    environment:
+      # Defaults point at the linkding service above; override via .env
+      - LINKDING_URL=${LINKDING_URL:-http://linkding:9090}
+      - LINKDING_TOKEN=${LINKDING_TOKEN:-change-me}
+      - LINKDING_TAG=${LINKDING_TAG:-Offline}
+      - PORT=8080
+      - SYNC_ON_START=${SYNC_ON_START:-true}
+      - SNAPSHOT_DIR=/snapshots
+      - LOG_DIR=/logs
+    volumes:
+      - snapshots:/snapshots
+      - logs:/logs
+    # depends_on:
+    #   - linkding
+    restart: unless-stopped
+
+volumes:
+  snapshots:
+  logs:
