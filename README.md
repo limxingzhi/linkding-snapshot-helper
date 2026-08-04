@@ -4,6 +4,8 @@ A tiny web server that syncs [SingleFile](https://github.com/gildas-lormeau/Sing
 
 Built for offline reading: tag bookmarks in Linkding, let this pull the snapshots, then browse them from your phone or laptop without internet.
 
+![Screenshot](docs/screenshot.png)
+
 ## Quick start
 
 ```bash
