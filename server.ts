@@ -34,14 +34,40 @@ function safeIp(ip: string | undefined): string {
   return String(ip ?? "").replace(/[^a-fA-F0-9:.]/g, "");
 }
 
-function isTailscaleIp(ip: string | undefined): boolean {
-  if (!ip) return false;
-  if (ip === "::1" || ip === "::ffff:127.0.0.1" || ip === "127.0.0.1") return true;
+function ipToV4Int(ip: string): number | null {
   const match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(ip);
   const v4 = match ? match[1] : (ip.includes(":") ? null : ip);
-  if (!v4) return false;
+  if (!v4) return null;
   const octets = v4.split(".").map(Number);
-  return octets[0] === 100 && (octets[1] >= 64 && octets[1] <= 127);
+  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return null;
+  return ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+}
+
+function parseCidr(cidr: string): { ip: number; mask: number } | null {
+  const [ipPart, prefixPart] = cidr.trim().split("/");
+  const prefix = prefixPart === undefined ? 32 : Number(prefixPart);
+  if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) return null;
+  const ip = ipToV4Int(ipPart);
+  if (ip === null) return null;
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return { ip: ip & mask, mask };
+}
+
+function isLocalhostIp(ip: string | undefined): boolean {
+  return ip === "::1" || ip === "::ffff:127.0.0.1" || ip === "127.0.0.1";
+}
+
+function makeIsAdminIp(adminSubnet: string): (ip: string | undefined) => boolean {
+  const trimmed = adminSubnet.trim();
+  if (trimmed === "") return () => true; // default: allow all subnets
+  const ranges = trimmed.split(",").map(parseCidr).filter((r): r is { ip: number; mask: number } => r !== null);
+  return (ip: string | undefined): boolean => {
+    if (!ip) return false;
+    if (isLocalhostIp(ip)) return true;
+    const int = ipToV4Int(ip);
+    if (int === null || ranges.length === 0) return false;
+    return ranges.some((r) => (int & r.mask) === r.ip);
+  };
 }
 
 function extractDomain(url: string): string {
@@ -130,7 +156,7 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
       <div style="flex:1;min-width:8px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="${esc(basePath)}/download.zip" class="btn" style="background:${Colors.green};color:${Colors.bg}">Download ZIP</a>
-        <a href="${esc(basePath)}/sync" class="btn" style="background:${Colors.magenta};color:${Colors.bg}">Sync</a>
+        ${isTrusted ? `<a href="${esc(basePath)}/sync" class="btn" style="background:${Colors.magenta};color:${Colors.bg}">Sync</a>` : ""}
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -197,15 +223,18 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(express.urlencoded({ extended: false }));
 
+  const adminSubnet = (process.env.ADMIN_SUBNET || "").trim();
+  const isAdminIp = makeIsAdminIp(adminSubnet);
+
   const trustCheck = (req: Request, _res: Response, next: NextFunction): void => {
-    req.isTrusted = isTailscaleIp(req.ip);
+    req.isTrusted = isAdminIp(req.ip);
     next();
   };
 
   app.use((req: Request, _res: Response, next: NextFunction): void => {
     const ip = safeIp(req.ip);
     logger.info(`${ip} - ${req.method} ${req.url}`);
-    if (!isTailscaleIp(req.ip)) {
+    if (!isAdminIp(req.ip)) {
       logger.toExternal(`${ip} - ${req.method} ${req.url}`);
     }
     next();
@@ -256,8 +285,13 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     archive.finalize();
   });
 
-  router.get("/sync", async (req: Request, res: Response) => {
+  router.get("/sync", trustCheck, async (req: Request, res: Response) => {
     const ip = safeIp(req.ip);
+    if (!req.isTrusted) {
+      logger.info(`${ip} - Sync denied (untrusted IP)`);
+      res.status(403).type("text/plain").send("Forbidden\n");
+      return;
+    }
     if (syncing) {
       logger.info(`${ip} - Sync skipped (already in progress)`);
       return res.redirect(`${basePath}/`);

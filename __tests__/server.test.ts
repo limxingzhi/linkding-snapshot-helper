@@ -138,6 +138,71 @@ describe("Express server", () => {
     expect(res.text).not.toContain("token=abc");
   });
 
+  it("GET /sync returns 403 for IP outside ADMIN_SUBNET without syncing", async () => {
+    process.env.ADMIN_SUBNET = "100.64.0.0/10";
+    let called = false;
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => { called = true; return []; }, logger: silentLog });
+
+    const res = await request(app).get("/sync").set("X-Forwarded-For", "192.168.1.5");
+    expect(res.status).toBe(403);
+    expect(called).toBe(false);
+    delete process.env.ADMIN_SUBNET;
+  });
+
+  it("GET /sync succeeds for default admin range (Tailscale) IP", async () => {
+    const res = await request(app).get("/sync").set("X-Forwarded-For", "100.100.50.25");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/");
+  });
+
+  it("allows all subnets by default when ADMIN_SUBNET is unset", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/").set("X-Forwarded-For", "192.168.1.5");
+    expect(res.text).toContain('action="/delete"');
+    expect(res.text).toContain('href="/sync"');
+
+    const resSync = await request(app).get("/sync").set("X-Forwarded-For", "192.168.1.5");
+    expect(resSync.status).toBe(302);
+  });
+
+  it("honors custom ADMIN_SUBNET for trust", async () => {
+    process.env.ADMIN_SUBNET = "10.20.0.0/16";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const resTrusted = await request(app).get("/").set("X-Forwarded-For", "10.20.3.4");
+    expect(resTrusted.text).toContain('action="/delete"');
+    expect(resTrusted.text).toContain('href="/sync"');
+
+    const resUntrusted = await request(app).get("/").set("X-Forwarded-For", "100.100.50.25");
+    expect(resUntrusted.text).not.toContain('action="/delete"');
+    expect(resUntrusted.text).not.toContain('href="/sync"');
+
+    const resSync = await request(app).get("/sync").set("X-Forwarded-For", "10.20.3.4");
+    expect(resSync.status).toBe(302);
+
+    const resSyncDenied = await request(app).get("/sync").set("X-Forwarded-For", "100.100.50.25");
+    expect(resSyncDenied.status).toBe(403);
+
+    delete process.env.ADMIN_SUBNET;
+  });
+
+  it("supports comma-separated ADMIN_SUBNET values", async () => {
+    process.env.ADMIN_SUBNET = "10.20.0.0/16,192.168.100.0/24";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res1 = await request(app).get("/").set("X-Forwarded-For", "10.20.9.9");
+    expect(res1.text).toContain('action="/delete"');
+
+    const res2 = await request(app).get("/").set("X-Forwarded-For", "192.168.100.77");
+    expect(res2.text).toContain('action="/delete"');
+
+    const res3 = await request(app).get("/").set("X-Forwarded-For", "192.168.101.77");
+    expect(res3.text).not.toContain('action="/delete"');
+
+    delete process.env.ADMIN_SUBNET;
+  });
+
   it("handles uncaught errors with centralized error handler", async () => {
     fs.writeFileSync(path.join(FIXTURE_DIR, "throw.html"), "<html>ok</html>");
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
@@ -435,7 +500,8 @@ describe("Express server", () => {
     fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
   });
 
-  it("POST /delete returns 403 for non-Tailscale IP", async () => {
+  it("POST /delete returns 403 for IP outside ADMIN_SUBNET", async () => {
+    process.env.ADMIN_SUBNET = "100.64.0.0/10";
     fs.writeFileSync(path.join(FIXTURE_DIR, "nope.html"), "<html>x</html>");
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
 
@@ -443,6 +509,7 @@ describe("Express server", () => {
     expect(res.status).toBe(403);
     expect(fs.existsSync(path.join(FIXTURE_DIR, "nope.html"))).toBe(true);
     fs.unlinkSync(path.join(FIXTURE_DIR, "nope.html"));
+    delete process.env.ADMIN_SUBNET;
   });
 
   it("POST /delete succeeds for Tailscale IP", async () => {
@@ -471,16 +538,35 @@ describe("Express server", () => {
     expect(res.text).toContain('action="/delete"');
   });
 
-  it("hides delete button for non-Tailscale IP", async () => {
+  it("hides delete button for IP outside ADMIN_SUBNET", async () => {
+    process.env.ADMIN_SUBNET = "100.64.0.0/10";
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
 
     const res = await request(app).get("/").set("X-Forwarded-For", "192.168.1.5");
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('action="/delete"');
+    delete process.env.ADMIN_SUBNET;
+  });
+
+  it("shows Sync button for admin IP", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/").set("X-Forwarded-For", "100.100.50.25");
+    expect(res.text).toContain('href="/sync"');
+  });
+
+  it("hides Sync button for IP outside ADMIN_SUBNET", async () => {
+    process.env.ADMIN_SUBNET = "100.64.0.0/10";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/").set("X-Forwarded-For", "192.168.1.5");
+    expect(res.text).not.toContain('href="/sync"');
+    delete process.env.ADMIN_SUBNET;
   });
 
   describe("external access logging", () => {
-    it("calls toExternal for non-Tailscale IP", async () => {
+    it("calls toExternal for IP outside ADMIN_SUBNET", async () => {
+      process.env.ADMIN_SUBNET = "100.64.0.0/10";
       const calls: string[] = [];
       const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
@@ -488,9 +574,11 @@ describe("Express server", () => {
       await request(app).get("/test-page.html").set("X-Forwarded-For", "192.168.1.5");
       expect(calls.length).toBeGreaterThanOrEqual(1);
       expect(calls[0]).toMatch(/^192\.168\.1\.5 - GET \/test-page\.html$/);
+      delete process.env.ADMIN_SUBNET;
     });
 
-    it("calls toExternal for public IP", async () => {
+    it("calls toExternal for public IP when ADMIN_SUBNET is set", async () => {
+      process.env.ADMIN_SUBNET = "100.64.0.0/10";
       const calls: string[] = [];
       const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });
@@ -498,9 +586,10 @@ describe("Express server", () => {
       await request(app).get("/").set("X-Forwarded-For", "203.0.113.42");
       expect(calls.length).toBeGreaterThanOrEqual(1);
       expect(calls[0]).toMatch(/^203\.0\.113\.42 - GET \/$/);
+      delete process.env.ADMIN_SUBNET;
     });
 
-    it("does not call toExternal for Tailscale IP", async () => {
+    it("does not call toExternal for trusted admin IP", async () => {
       const calls: string[] = [];
       const testLog: Logger = { ...silentLog, toExternal: (m) => calls.push(m) };
       const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: testLog });

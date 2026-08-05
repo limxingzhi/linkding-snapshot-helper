@@ -49,6 +49,7 @@ All config is via environment variables (set them in `.env`):
 | `PORT` | `8080` | Port to listen on |
 | `SYNC_ON_START` | `true` | Sync snapshots on startup |
 | `SNAPSHOT_DIR` | `/snapshots` | Directory to store snapshots |
+| `ADMIN_SUBNET` | (empty — allow all) | Comma-separated CIDR ranges trusted as admin (e.g. `100.64.0.0/10` for Tailscale). When unset, every IP is trusted; delete + sync are restricted to it when set. Localhost is always trusted |
 | `BASE_PATH` | (empty) | Serve the app under a path prefix, e.g. `BASE_PATH=/snapd` → `http://host:8080/snapd/` |
 | `LINKDING_DISPLAY_URL` | (empty) | Public URL for Linkding, used for the `#id` links in the index instead of the internal `LINKDING_URL` host. The link becomes `<display>/bookmarks?details=<id>` |
 
@@ -58,9 +59,11 @@ All config is via environment variables (set them in `.env`):
 |---|---|
 | `GET /` | Directory listing of all downloaded snapshots |
 | `GET /<filename>` | Serve a specific snapshot (`.html` only) |
-| `GET /sync` | Re-sync from Linkding (skips already-downloaded files) |
+| `GET /download.zip` | Download all snapshots as a ZIP archive |
+| `GET /sync` | Re-sync from Linkding (skips already-downloaded files). Admin-only |
+| `POST /delete` | Delete an unlinked snapshot. Admin-only |
 
-All endpoints are served under `BASE_PATH` when set (e.g. `GET /snapd/`, `GET /snapd/sync`).
+All endpoints are served under `BASE_PATH` when set (e.g. `GET /snapd/`, `GET /snapd/sync`). The Sync and delete buttons are only shown to admin IPs; the Sync and delete routes return `403 Forbidden` to everyone else. The admin check runs against the client IP seen by the server (`X-Forwarded-For` is honored, since the app trusts proxies) — when running behind a reverse proxy, set `ADMIN_SUBNET` to your proxy's real client subnet.
 
 ## How it works
 
