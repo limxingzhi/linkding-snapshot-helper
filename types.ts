@@ -13,6 +13,7 @@ export interface Logger {
 
 export type ApiGet = (url: string) => Promise<unknown>;
 export type DownloadFile = (url: string, dest: string) => Promise<void>;
+export type ArchiveBookmark = (bookmarkId: number) => Promise<void>;
 
 // ---- Linkding API shapes ----
 
@@ -139,6 +140,7 @@ export interface CreateAppOptions {
   syncFn: SyncFn;
   tag?: string;
   logger: Logger;
+  archiveBookmark?: ArchiveBookmark;
 }
 
 // ---- Express augmentation ----

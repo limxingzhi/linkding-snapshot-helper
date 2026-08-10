@@ -348,6 +348,201 @@ describe("Express server", () => {
     expect(res.status).toBe(404);
   });
 
+  it("shows archive button for snapshots with meta entry", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/archive"');
+    expect(res.text).toContain("archive-dot");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("archive button opens the linkding bookmark in a new tab", async () => {
+    process.env.LINKDING_DISPLAY_URL = "https://ld.example";
+    const meta = { "test-page.html": { id: 42, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("window.open('https://ld.example/bookmarks?details=42','_blank')");
+
+    delete process.env.LINKDING_DISPLAY_URL;
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("escapes apostrophes in the archive button JS", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "What's new-1.html"), "<html>x</html>");
+    const meta = { "What's new-1.html": { id: 1, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog, archiveBookmark: async () => {} });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    // Raw HTML: &#39; is decoded to ' by the HTML tokenizer, and the
+    // backslash keeps it inside the JS string literal.
+    expect(res.text).toContain("confirm('Archive What\\&#39;s new?')");
+    expect(res.text).not.toContain("confirm('Archive What's new?')");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "What's new-1.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("escapes quote payloads so they cannot break out of the archive onclick", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "x');alert(1);('-1.html"), "<html>x</html>");
+    const meta = { "x');alert(1);('-1.html": { id: 2, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog, archiveBookmark: async () => {} });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("confirm('Archive x\\&#39;);alert(1);(\\&#39;?')");
+    expect(res.text).not.toContain("confirm('Archive x');alert(1);");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "x');alert(1);('-1.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("escapes apostrophes in the delete button JS", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "it's-mine.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("confirm('Delete it\\&#39;s-mine.html — it\\&#39;s-mine.html?')");
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "it's-mine.html"));
+  });
+
+  it("does not show archive button for untrusted clients", async () => {
+    process.env.ADMIN_SUBNET = "10.20.0.0/16";
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/").set("X-Forwarded-For", "100.100.50.25");
+    expect(res.text).not.toContain('action="/archive"');
+    expect(res.text).toContain("read-dot");
+
+    delete process.env.ADMIN_SUBNET;
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /archive calls archiveBookmark and marks meta unread=false", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "archive-me.html"), "<html>x</html>");
+    const meta = { "archive-me.html": { id: 42, tags: [], url: "https://example.com", unread: true } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const archived: number[] = [];
+    const app = createApp({
+      snapshotDir: FIXTURE_DIR,
+      syncFn: async () => [],
+      logger: silentLog,
+      archiveBookmark: async (id) => { archived.push(id); },
+    });
+
+    const res = await request(app).post("/archive").send("file=archive-me.html");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/sync");
+    expect(archived).toEqual([42]);
+    const updated = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, "meta.json"), "utf8"));
+    expect(updated["archive-me.html"].unread).toBe(false);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "archive-me.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /archive redirects to /sync which runs a sync", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "sync-after.html"), "<html>x</html>");
+    const meta = { "sync-after.html": { id: 5, tags: [], url: "https://example.com", unread: true } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    let synced = false;
+    const app = createApp({
+      snapshotDir: FIXTURE_DIR,
+      syncFn: async () => { synced = true; return []; },
+      logger: silentLog,
+      archiveBookmark: async () => {},
+    });
+
+    const res = await request(app).post("/archive").send("file=sync-after.html").redirects(1);
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe("/");
+    expect(synced).toBe(true);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "sync-after.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /archive still redirects when the follow-up sync fails", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "sync-fail.html"), "<html>x</html>");
+    const meta = { "sync-fail.html": { id: 6, tags: [], url: "https://example.com" } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({
+      snapshotDir: FIXTURE_DIR,
+      syncFn: async () => { throw new Error("sync boom"); },
+      logger: silentLog,
+      archiveBookmark: async () => {},
+    });
+
+    const res = await request(app).post("/archive").send("file=sync-fail.html").redirects(1);
+    expect(res.status).toBe(500);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "sync-fail.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /archive returns 404 for file without meta entry", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "no-meta.html"), "<html>x</html>");
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog, archiveBookmark: async () => {} });
+
+    const res = await request(app).post("/archive").send("file=no-meta.html");
+    expect(res.status).toBe(404);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "no-meta.html"));
+  });
+
+  it("POST /archive returns 400 for missing file parameter", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/archive").send("nope=1");
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /archive returns 400 for path traversal attempts", async () => {
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/archive").send("file=../etc/passwd");
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /archive returns 502 and leaves meta unchanged when linkding call fails", async () => {
+    fs.writeFileSync(path.join(FIXTURE_DIR, "fail-archive.html"), "<html>x</html>");
+    const meta = { "fail-archive.html": { id: 7, tags: [], url: "https://example.com", unread: true } };
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog, archiveBookmark: async () => { throw new Error("boom"); } });
+
+    const res = await request(app).post("/archive").send("file=fail-archive.html");
+    expect(res.status).toBe(502);
+    const metaAfter = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, "meta.json"), "utf8"));
+    expect(metaAfter["fail-archive.html"].unread).toBe(true);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "fail-archive.html"));
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+  });
+
+  it("POST /archive returns 403 for untrusted clients", async () => {
+    process.env.ADMIN_SUBNET = "10.20.0.0/16";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).post("/archive").set("X-Forwarded-For", "100.100.50.25").send("file=x.html");
+    expect(res.status).toBe(403);
+
+    delete process.env.ADMIN_SUBNET;
+  });
+
   it("shows delete button for snapshots without meta entry", async () => {
     const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
 

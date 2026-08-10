@@ -47,5 +47,6 @@ types.ts     → Shared TypeScript types (Logger, ApiGet, LinkdingBookmark, etc.
 - **`unread` defaults to `true`** when absent from the API response.
 - **`clean()` also updates `unread`** on surviving entries by re-fetching bookmark data.
 - **Delete** only works for files **without** a meta entry (unlinked snapshots). Blocks `/` and `..`.
+- **Archive**: for trusted clients the read-dot renders as an archive button (hover shows "A"); `POST /archive` calls linkding's `POST /api/bookmarks/{id}/archive/` via injected `archiveBookmark`, flips `unread` to `false` in meta.json, and redirects to `/sync` so the page refreshes with post-archive state. Archived bookmarks leave the sync query (`is_archived=false` filter), so the follow-up sync/clean removes the snapshot.
 - **`sanitize()`** strips `<>:"/\|?*`, collapses whitespace, trims dots/spaces, truncates to 200, defaults to `"untitled"`.
 - CSP is **intentionally disabled** — don't re-enable it.
