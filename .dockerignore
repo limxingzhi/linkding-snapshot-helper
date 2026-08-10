@@ -1,9 +1,13 @@
 .git
 .github
+.agents
 .env
 node_modules
 __tests__
 coverage
 *.test.js
 vitest.config.js
+compose.yml
+docs
+dist
 AGENTS.md

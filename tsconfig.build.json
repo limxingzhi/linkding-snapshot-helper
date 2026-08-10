@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["server.ts", "sync.ts", "logger.ts", "sanitize.ts", "types.ts"],
+  "exclude": ["node_modules", "dist", "__tests__"]
+}
