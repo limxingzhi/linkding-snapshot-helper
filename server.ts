@@ -10,7 +10,7 @@ import http from "http";
 import https from "https";
 import { sync } from "./sync";
 import { createLogger } from "./logger";
-import type { Logger, SyncLogEntry, SyncFn, ZipCache, ApiGet, DownloadFile, MetaRecord } from "./types";
+import type { Logger, SyncLogEntry, SyncFn, ZipCache, ApiGet, DownloadFile, MetaRecord, ArchiveBookmark } from "./types";
 import { z } from "zod";
 
 const Colors = {
@@ -28,6 +28,15 @@ const Colors = {
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Escape for a JS string literal embedded in an HTML attribute. The HTML
+// tokenizer decodes character references (e.g. &#39;) before the JS engine
+// runs, so esc() alone cannot protect single-quoted JS strings. Escape
+// backslashes, quotes, and line breaks so they survive into the JS source
+// intact.
+function jsStr(s: string): string {
+  return esc(s.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, "\\r").replace(/\n/g, "\\n"));
 }
 
 function safeIp(ip: string | undefined): string {
@@ -84,6 +93,8 @@ function normalizeBasePath(raw: string | undefined): string {
   return trimmed === "" ? "" : trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
+const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includes(".."), { message: "Invalid filename" });
+
 function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string, linkdingDisplayUrl: string): string {
   const htmlFiles = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const txtFiles = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".txt")));
@@ -111,14 +122,17 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
       : "";
     const isUnread = bm ? bm.unread !== false : true;
     const displayUrl = (bm && overrides[String(bm.id)]) || (bm && bm.articleUrl) || "";
+    const bmDetailsUrl = bm ? (linkdingDisplayUrl ? `${linkdingDisplayUrl}/bookmarks?details=${bm.id}` : bm.url || "") : "";
     const domainCell = displayUrl
       ? `<a href="${esc(displayUrl)}" target="_blank" style="color:#8a8a7a;font-size:12px">${esc(extractDomain(displayUrl))}</a>`
       : "";
     const readClass = isUnread ? "" : " is-read";
     const firstCell = bm
-      ? `<span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>`
+      ? isTrusted
+        ? `<form method="POST" action="${esc(basePath)}/archive" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="archive-dot" title="Archive snapshot&#10;Hold Alt/Option to skip confirmation" aria-label="Archive ${esc(name)}" onclick="if(!event.altKey&&!confirm('Archive ${jsStr(name)}?'))return false;window.open('${jsStr(bmDetailsUrl)}','_blank');return true;"></button></form>`
+        : `<span class="read-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;"></span>`
       : isTrusted
-        ? `<form method="POST" action="${esc(basePath)}/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${esc(name)} — ${esc(f)}?')" style="background:none;border:none;color:${Colors.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
+        ? `<form method="POST" action="${esc(basePath)}/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${jsStr(name)} — ${jsStr(f)}?')" style="background:none;border:none;color:${Colors.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
         : "";
     const txtLink = hasTxt
       ? `<a href="${esc(txtF)}" style="display:inline-block;margin-left:8px;font-size:11px;color:${Colors.comment};text-transform:uppercase;letter-spacing:0.5px;border:1px solid ${Colors.comment};border-radius:3px;padding:1px 6px">TXT</a>`
@@ -146,6 +160,12 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
     .read-dot { background:${Colors.bgLighter}; }
     tr.is-read .read-dot { background:${Colors.green}; }
     tr.is-read td:nth-child(2) a { color:${Colors.comment}; }
+    .archive-dot { position:relative;display:inline-block;width:18px;height:18px;border:none;padding:0;background:none;border-radius:50%;cursor:pointer;vertical-align:middle; }
+    .archive-dot::before { content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:${Colors.bgLighter}; }
+    tr.is-read .archive-dot::before { background:${Colors.green}; }
+    .archive-dot::after { content:"A";display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Fira Code',monospace;font-size:12px;font-weight:600;color:${Colors.orange};line-height:1; }
+    .archive-dot:hover::before { display:none; }
+    .archive-dot:hover::after { display:block; }
   </style>
 </head>
 <body>
@@ -195,9 +215,11 @@ export interface CreateAppOptions {
   syncFn: SyncFn;
   tag?: string;
   logger: Logger;
+  archiveBookmark?: ArchiveBookmark;
 }
 
-export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: CreateAppOptions) {
+export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiveBookmark }: CreateAppOptions) {
+  const archiveFn: ArchiveBookmark = archiveBookmark || (async () => { throw new Error("Archive not configured"); });
   const app = express();
   const basePath = normalizeBasePath(process.env.BASE_PATH);
   const linkdingDisplayUrl = (process.env.LINKDING_DISPLAY_URL || "").trim().replace(/\/+$/, "");
@@ -313,7 +335,6 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
 
   router.post("/delete", trustCheck, (req: Request, res: Response) => {
     if (!req.isTrusted) { res.status(403).type("text/plain").send("Forbidden\n"); return; }
-    const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includes(".."), { message: "Invalid filename" });
     const parsed = FileSchema.safeParse(req.body.file);
     if (!parsed.success) { res.status(400).type("text/plain").send("Invalid filename\n"); return; }
     const file = parsed.data;
@@ -335,6 +356,38 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger }: Crea
     logger.info(`Deleted: ${file}`);
     invalidateZipCache();
     res.redirect(`${basePath}/`);
+  });
+
+  router.post("/archive", trustCheck, async (req: Request, res: Response) => {
+    if (!req.isTrusted) { res.status(403).type("text/plain").send("Forbidden\n"); return; }
+    const parsed = FileSchema.safeParse(req.body.file);
+    if (!parsed.success) { res.status(400).type("text/plain").send("Invalid filename\n"); return; }
+    const file = parsed.data;
+    const filePath = path.join(snapshotDir, file);
+    if (!fs.existsSync(filePath)) { res.status(404).type("text/plain").send("File not found\n"); return; }
+    const metaPath = path.join(snapshotDir, "meta.json");
+    let meta: MetaRecord = {};
+    if (fs.existsSync(metaPath)) {
+      try { meta = JSON.parse(fs.readFileSync(metaPath, "utf8")); } catch { meta = {}; }
+    }
+    const entry = meta[file];
+    if (!entry || typeof entry.id !== "number") {
+      res.status(404).type("text/plain").send("No bookmark metadata for file\n");
+      return;
+    }
+    try {
+      await archiveFn(entry.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error(`Archive failed for ${file}: ${msg}`);
+      res.status(502).type("text/plain").send("Archive failed. Check server logs for details.\n");
+      return;
+    }
+    entry.unread = false;
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    logger.info(`Archived: ${file} (bookmark ${entry.id})`);
+    invalidateZipCache();
+    res.redirect(`${basePath}/sync`);
   });
 
   if (basePath) {
@@ -385,6 +438,30 @@ function makeApiGet(base: string, token: string): ApiGet {
         req.destroy();
         reject(new Error(`Request timeout: ${url}`));
       });
+    });
+  };
+}
+
+function makeApiPost(base: string, token: string): (url: string) => Promise<void> {
+  const headers: Record<string, string> = token ? { Authorization: `Token ${token}` } : {};
+  const mod = base.startsWith("https") ? https : http;
+  return function apiPost(url: string): Promise<void> {
+    const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
+    return new Promise((resolve, reject) => {
+      const req = mod.request(fullUrl, { method: "POST", headers }, (res) => {
+        res.resume();
+        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+          return;
+        }
+        resolve();
+      });
+      req.on("error", reject);
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error(`Request timeout: ${url}`));
+      });
+      req.end();
     });
   };
 }
@@ -446,6 +523,8 @@ function main(): void {
 
   const apiGet = makeApiGet(base, token);
   const downloadFile = makeDownloadFile(base, token);
+  const apiPost = makeApiPost(base, token);
+  const archiveBookmark: ArchiveBookmark = (bookmarkId) => apiPost(`${base}/api/bookmarks/${bookmarkId}/archive/`);
 
   const syncFn: SyncFn = () => sync({ base, snapshotDir, apiGet, downloadFile, tag, log: logger, delay });
 
@@ -454,7 +533,7 @@ function main(): void {
     syncFn().catch((e: Error) => logger.error(`Startup sync failed: ${e.message}`));
   }
 
-  const app = createApp({ snapshotDir, syncFn, tag, logger });
+  const app = createApp({ snapshotDir, syncFn, tag, logger, archiveBookmark });
   const server = app.listen(port, "0.0.0.0", () => {
     logger.info(`Serving snapshots on http://0.0.0.0:${port}${normalizeBasePath(process.env.BASE_PATH)}/`);
   });
