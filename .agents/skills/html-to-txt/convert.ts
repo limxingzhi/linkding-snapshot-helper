@@ -12,7 +12,6 @@
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import fs from "fs";
-import path from "path";
 
 // ---------------------------------------------------------------------------
 //  HTML → Plain text (headings marked, links shown with URLs)
