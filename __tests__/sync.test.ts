@@ -294,6 +294,53 @@ describe("sync", () => {
     expect(meta2["Page-1.html"]).toBeDefined();
     expect(meta2["Page-1.html"].tags).toEqual(["tag1"]);
   });
+
+  it("does not query assets for bookmarks whose file already exists", async () => {
+    fs.writeFileSync(path.join(TMP, "Page-5.html"), "old");
+    const bookmarks = [{ id: 5, title: "Page" }];
+    const base = "https://linkding.test";
+    let assetCalls = 0;
+    const apiGet: ApiGet = async (url: string) => {
+      if (url.includes("/bookmarks/5/assets/")) {
+        assetCalls++;
+        return { results: [], next: null, count: 0 };
+      }
+      return { results: bookmarks, next: null, count: 1 };
+    };
+
+    await sync({ base, snapshotDir: TMP, apiGet, downloadFile: makeDownloader(), log: silentLog, skipTxt: true });
+
+    expect(assetCalls).toBe(0);
+    expect(fs.readFileSync(path.join(TMP, "Page-5.html"), "utf8")).toBe("old");
+  });
+
+  it("records the downloaded asset id in meta.json", async () => {
+    const bookmarks = [{ id: 1, title: "Page" }];
+    const assets = { 1: [{ id: 10, asset_type: "snapshot", created_at: "2025-01-01T00:00:00Z" }] };
+    const downloads = { 10: "content" };
+
+    await runSync(bookmarks, assets, downloads);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Page-1.html"].assetId).toBe(10);
+  });
+
+  it("skips re-download when the newest snapshot is unchanged after a rename", async () => {
+    const assets = { 1: [{ id: 10, asset_type: "snapshot", created_at: "2025-01-01T00:00:00Z" }] };
+    const downloads = { 10: "content" };
+
+    await runSync([{ id: 1, title: "Original" }], assets, downloads);
+    expect(fs.existsSync(path.join(TMP, "Original-1.html"))).toBe(true);
+
+    const log = await runSync([{ id: 1, title: "Renamed" }], assets, downloads);
+
+    expect(fs.existsSync(path.join(TMP, "Renamed-1.html"))).toBe(false);
+    expect(fs.existsSync(path.join(TMP, "Original-1.html"))).toBe(true);
+    expect(log[0]).toMatchObject({ status: "skip", reason: "snapshot unchanged" });
+    const meta = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(meta["Original-1.html"]).toBeDefined();
+    expect(meta["Renamed-1.html"]).toBeUndefined();
+  });
 });
 
 describe("clean", () => {

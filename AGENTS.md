@@ -26,8 +26,9 @@ types.ts     → Shared TypeScript types (Logger, ApiGet, LinkdingBookmark, etc.
 ## Key patterns
 
 - **Static files gated by extension**: middleware only serves `.html`; `meta.json` lives in the same dir but is never exposed.
+- **Sync skips first**: bookmarks whose `{title}-{id}.html` already exists are skipped before any asset API call; asset lookups only happen for missing files. Politeness `delay` throttles real downloads only, not skips.
 - **Filename convention**: `{sanitizedTitle}-{bookmarkId}.html`. `clean()` regexes out the ID to detect orphans.
-- **meta.json**: written on every sync — full overwrite from current sync log, no incremental merge. Git-ignored. Fields: `id`, `tags`, `url`, `articleUrl`, `unread`.
+- **meta.json**: written on every sync — full overwrite from current sync log, no incremental merge. Git-ignored. Fields: `id`, `tags`, `url`, `articleUrl`, `unread`, `assetId` (asset id of the downloaded snapshot; lets `sync()` skip re-downloads when a bookmark is renamed but its newest snapshot is unchanged).
 - **Linkding API**: `Authorization: Token {token}`. Paginated via `next` links (`?q=%23{tag}&limit=100`).
 - **Helmet** with CSP disabled (snapshots load external resources).
 - **ZIP cache**: in-memory, keyed on filename+mtime hash. Invalidated after sync or delete.
