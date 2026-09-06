@@ -59,6 +59,7 @@ export const SyncLogEntryOkSchema = z.object({
   bookmarkUrl: z.string(),
   articleUrl: z.string(),
   unread: z.boolean(),
+  assetId: z.number().optional(),
 });
 
 export type SyncLogEntryOk = z.infer<typeof SyncLogEntryOkSchema>;
@@ -73,6 +74,7 @@ export const SyncLogEntrySkipSchema = z.object({
   bookmarkUrl: z.string().optional(),
   articleUrl: z.string().optional(),
   unread: z.boolean().optional(),
+  assetId: z.number().optional(),
 });
 
 export type SyncLogEntrySkip = z.infer<typeof SyncLogEntrySkipSchema>;
@@ -99,6 +101,7 @@ export const MetaEntrySchema = z.object({
   url: z.string(),
   articleUrl: z.string().optional(),
   unread: z.boolean().optional(),
+  assetId: z.number().optional(),
 });
 
 export type MetaEntry = z.infer<typeof MetaEntrySchema>;
