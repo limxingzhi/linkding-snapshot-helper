@@ -3,8 +3,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import helmet from "helmet";
 import fs from "fs";
 import path from "path";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require("archiver") as (format: string, options?: Record<string, unknown>) => any;
+import { ZipArchive } from "archiver";
 import { PassThrough } from "stream";
 import http from "http";
 import https from "https";
@@ -41,6 +40,15 @@ function jsStr(s: string): string {
 
 function safeIp(ip: string | undefined): string {
   return String(ip ?? "").replace(/[^a-fA-F0-9:.]/g, "");
+}
+
+function dateStamp(d: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function zipFilename(d: Date = new Date()): string {
+  return `snapshots - ${dateStamp(d)}.zip`;
 }
 
 function ipToV4Int(ip: string): number | null {
@@ -175,7 +183,7 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
       <span style="color:${Colors.comment};font-size:13px">${htmlFiles.length}</span>
       <div style="flex:1;min-width:8px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a href="${esc(basePath)}/download.zip" class="btn" style="background:${Colors.green};color:${Colors.bg}">Download ZIP</a>
+        <a href="${esc(basePath)}/download.zip" id="download-zip" class="btn" style="background:${Colors.green};color:${Colors.bg}">Download ZIP</a>
         ${isTrusted ? `<a href="${esc(basePath)}/sync" class="btn" style="background:${Colors.magenta};color:${Colors.bg}">Sync</a>` : ""}
       </div>
     </div>
@@ -205,6 +213,13 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
       rows.forEach(r => t.querySelector("tbody").appendChild(r));
     }
     sortTable(1);
+    (function () {
+      var pad = function (n) { return String(n).padStart(2, "0"); };
+      var d = new Date();
+      var name = "snapshots - " + d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + ".zip";
+      var link = document.getElementById("download-zip");
+      if (link) { link.setAttribute("download", name); }
+    })();
   </script>
 </body>
 </html>`;
@@ -279,13 +294,13 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
     const hash = zipFileHash();
     if (zipCache && zipCache.hash === hash) {
       logger.info(`${ip} - ZIP download served from cache (${zipCache.count} files)`);
-      res.type("application/zip").attachment("snapshots.zip").send(zipCache.buffer);
+      res.type("application/zip").attachment(zipFilename()).send(zipCache.buffer);
       return;
     }
     const files = listSnapshotFiles(snapshotDir);
     logger.info(`${ip} - ZIP download requested (${files.length} files)`);
-    res.type("application/zip").attachment("snapshots.zip");
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    res.type("application/zip").attachment(zipFilename());
+    const archive = new ZipArchive({ zlib: { level: 9 } });
       archive.on("error", (err: Error) => {
         logger.error(`ZIP archive error: ${err.message}`);
         if (!res.headersSent) {
