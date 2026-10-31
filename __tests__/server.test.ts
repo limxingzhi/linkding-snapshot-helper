@@ -225,6 +225,7 @@ describe("Express server", () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/application\/zip/);
+    expect(res.headers["content-disposition"]).toMatch(/snapshots - \d{4}-\d{2}-\d{2}\.zip/);
 
     fs.mkdirSync(TMP_DIR, { recursive: true });
     const zipPath = path.join(TMP_DIR, "out.zip");
