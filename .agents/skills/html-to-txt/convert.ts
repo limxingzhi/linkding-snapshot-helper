@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env bun
 /**
  * Convert a SingleFile HTML snapshot to clean .txt for e-readers.
  *
@@ -6,7 +6,7 @@
  * article content, then renders it as plain text — stripping all images,
  * navigation, sidebars, ads, and other boilerplate.
  *
- * Usage:  npx tsx convert.ts file.html [--out FILE] [--width N] [--title TITLE] [--url URL]
+ * Usage:  bun convert.ts file.html [--out FILE] [--width N] [--title TITLE] [--url URL]
  */
 
 import { JSDOM } from "jsdom";
@@ -340,7 +340,7 @@ function main(): void {
   }
 
   if (!htmlFile) {
-    console.error("Usage: npx tsx convert.ts file.html [--out FILE] [--width N] [--title TITLE] [--url URL] [--tags TAG1,TAG2]");
+    console.error("Usage: bun convert.ts file.html [--out FILE] [--width N] [--title TITLE] [--url URL] [--tags TAG1,TAG2]");
     process.exit(1);
   }
 
@@ -353,6 +353,6 @@ function main(): void {
   console.log(`Written: ${out}`);
 }
 
-if (process.argv[1]?.endsWith("convert.ts")) {
+if (import.meta.main) {
   main();
 }

@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "A tiny web server that syncs [SingleFile](https://github.com/gildas-lormeau/SingleFile) snapshots from your [Linkding](https://github.com/sissbruecker/linkding) bookmarks and serves them as static files.",
   "main": "server.ts",
+  "type": "module",
   "scripts": {
-    "start": "tsx server.ts",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "start": "npx bun server.ts",
+    "test": "npx bun test",
+    "test:run": "npx bun test",
+    "typecheck": "npx bun x tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -16,29 +17,30 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/limxingzhi/linkding-snapshot-helper/issues"
   },
   "homepage": "https://github.com/limxingzhi/linkding-snapshot-helper#readme",
+  "engines": {
+    "bun": ">=1.2"
+  },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "archiver": "^8.0.0",
     "dotenv": "^18.0.10",
     "express": "^5.2.1",
     "helmet": "^8.2.0",
+    "jsdom": "^31.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@mozilla/readability": "^0.6.0",
     "@types/archiver": "^8.0.0",
+    "@types/bun": "^1.3.0",
     "@types/express": "^5.0.6",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.6",
     "@types/supertest": "^7.2.0",
-    "jsdom": "^31.0.1",
     "supertest": "^7.3.2",
-    "tsx": "^4.22.4",
-    "typescript": "^7.0.2",
-    "vitest": "^5.1.1"
+    "typescript": "^7.0.2"
   }
 }

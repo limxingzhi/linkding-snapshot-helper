@@ -3,12 +3,12 @@ import fs from "fs";
 import path from "path";
 import { createApp } from "../server";
 import { execSync } from "child_process";
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import type { Logger, SyncFn } from "../types";
 
 const silentLog: Logger = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
-const FIXTURE_DIR = path.join(__dirname, "__fixtures__", "snapshots");
-const TMP_DIR = path.join(__dirname, "__fixtures__", "zip_tmp");
+const FIXTURE_DIR = path.join(import.meta.dir, "__fixtures__", "snapshots");
+const TMP_DIR = path.join(import.meta.dir, "__fixtures__", "zip_tmp");
 
 beforeAll(() => {
   fs.mkdirSync(FIXTURE_DIR, { recursive: true });
@@ -601,6 +601,30 @@ describe("Express server", () => {
     });
     expect(res1.body.equals(res2.body)).toBe(false);
     expect(fs.existsSync(path.join(FIXTURE_DIR, "cache-del.html"))).toBe(false);
+  });
+
+  it("invalidates zip cache when overrides.json changes", async () => {
+    const meta = { "test-page.html": { id: 1, tags: [], url: "https://example.com" } };
+    const overridesPath = path.join(FIXTURE_DIR, "overrides.json");
+    fs.writeFileSync(path.join(FIXTURE_DIR, "meta.json"), JSON.stringify(meta));
+    fs.writeFileSync(overridesPath, JSON.stringify({ "1": "https://first.example/article" }));
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const readZip = (res: { on: (event: string, cb: (chunk?: Buffer) => void) => void }, cb: (err: null, body: Buffer) => void) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c) => chunks.push(c as Buffer));
+      res.on("end", () => cb(null, Buffer.concat(chunks)));
+    };
+
+    const res1 = await request(app).get("/download.zip").buffer(true).parse(readZip);
+    await new Promise((r) => setTimeout(r, 10));
+    fs.writeFileSync(overridesPath, JSON.stringify({ "1": "https://second.example/article" }));
+    const res2 = await request(app).get("/download.zip").buffer(true).parse(readZip);
+
+    expect(res1.body.equals(res2.body)).toBe(false);
+
+    fs.unlinkSync(path.join(FIXTURE_DIR, "meta.json"));
+    fs.unlinkSync(overridesPath);
   });
 
   it("does not show delete button for snapshots with meta entry", async () => {

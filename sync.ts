@@ -1,34 +1,19 @@
-import fs from "fs";
-import path from "path";
-import { execSync } from "child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { sanitize } from "./sanitize";
 import type {
-  ApiGet,
-  DownloadFile,
-  Logger,
+  CleanOptions,
   LinkdingBookmark,
   MetaEntry,
   MetaRecord,
   SyncLogEntry,
+  SyncOptions,
 } from "./types";
 import {
   BookmarkListResponseSchema,
   AssetListResponseSchema,
   MetaRecordSchema,
 } from "./types";
-
-export interface SyncOptions {
-  base: string;
-  snapshotDir: string;
-  apiGet: ApiGet;
-  downloadFile: DownloadFile;
-  tag?: string;
-  log: Logger;
-  delay?: number;
-  skipTxt?: boolean;
-  retries?: number;
-  retryDelay?: number;
-}
 
 const TRANSIENT_ERROR_CODES = new Set([
   "ECONNRESET",
@@ -41,7 +26,9 @@ const TRANSIENT_ERROR_CODES = new Set([
 export function isTransientError(e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   if (TRANSIENT_ERROR_CODES.has((e as NodeJS.ErrnoException).code || "")) return true;
-  return /socket hang up/i.test(e.message);
+  if (e.name === "TimeoutError" || e.name === "AbortError") return true;
+  if (/socket hang up/i.test(e.message)) return true;
+  return e.cause instanceof Error && isTransientError(e.cause);
 }
 
 async function withRetry<T>(fn: () => Promise<T>, retries: number, retryDelay: number): Promise<T> {
@@ -56,14 +43,6 @@ async function withRetry<T>(fn: () => Promise<T>, retries: number, retryDelay: n
     }
   }
   throw lastError;
-}
-
-export interface CleanOptions {
-  base: string;
-  snapshotDir: string;
-  apiGet: ApiGet;
-  tag?: string;
-  log: Logger;
 }
 
 export async function sync({
@@ -194,16 +173,36 @@ export async function sync({
       }
       if (!skipTxt) {
         try {
-          let convertScript = path.resolve(__dirname, ".agents/skills/html-to-txt/convert.ts");
+          let convertScript = path.resolve(import.meta.dir, ".agents/skills/html-to-txt/convert.ts");
           if (!fs.existsSync(convertScript)) {
             const cwdScript = path.resolve(process.cwd(), ".agents/skills/html-to-txt/convert.ts");
             if (fs.existsSync(cwdScript)) convertScript = cwdScript;
           }
           if (fs.existsSync(convertScript)) {
-            execSync(`npx tsx "${convertScript}" "${filepath}" --out "${txtFilepath}" --width 0 --title "${bm.title || safeTitle}" --url "${(bm.url || "").replace(/"/g, '\\"')}" --tags "${(bm.tag_names || []).join(",")}"`, {
-              stdio: "pipe",
+            const result = Bun.spawnSync({
+              cmd: [
+                process.execPath,
+                convertScript,
+                filepath,
+                "--out",
+                txtFilepath,
+                "--width",
+                "0",
+                "--title",
+                bm.title || safeTitle,
+                "--url",
+                bm.url || "",
+                "--tags",
+                (bm.tag_names || []).join(","),
+              ],
+              stdout: "pipe",
+              stderr: "pipe",
               timeout: 30000,
             });
+            if (result.exitCode !== 0) {
+              const stderr = result.stderr.toString().trim();
+              throw new Error(stderr || `converter exited with code ${result.exitCode}`);
+            }
             const txtSize = fs.statSync(txtFilepath).size;
             logger.info(`[${i + 1}/${bookmarks.length}] TXT: ${path.basename(txtFilepath)} (${(txtSize / 1024).toFixed(0)} KB)`);
           }

@@ -1,15 +1,13 @@
 import "dotenv/config";
 import express, { type Request, type Response, type NextFunction } from "express";
 import helmet from "helmet";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
+import { PassThrough } from "node:stream";
 import { ZipArchive } from "archiver";
-import { PassThrough } from "stream";
-import http from "http";
-import https from "https";
-import { sync } from "./sync";
+import { sync, clean } from "./sync";
 import { createLogger } from "./logger";
-import type { Logger, SyncLogEntry, SyncFn, ZipCache, ApiGet, DownloadFile, MetaRecord, ArchiveBookmark } from "./types";
+import type { SyncFn, ZipCache, ApiGet, DownloadFile, MetaRecord, ArchiveBookmark, CreateAppOptions } from "./types";
 import { z } from "zod";
 
 const Colors = {
@@ -225,13 +223,25 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
 </html>`;
 }
 
-export interface CreateAppOptions {
-  snapshotDir: string;
-  syncFn: SyncFn;
-  tag?: string;
-  logger: Logger;
-  archiveBookmark?: ArchiveBookmark;
+function buildZip(snapshotDir: string, files: string[], indexHtml: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const archive = new ZipArchive({ zlib: { level: 9 } });
+    const pass = new PassThrough();
+    const chunks: Buffer[] = [];
+    archive.on("error", reject);
+    pass.on("error", reject);
+    pass.on("data", (chunk: Buffer) => chunks.push(chunk));
+    pass.on("end", () => resolve(Buffer.concat(chunks)));
+    archive.pipe(pass);
+    archive.append(indexHtml, { name: "index.html" });
+    for (const f of files) {
+      archive.file(path.join(snapshotDir, f), { name: f });
+    }
+    void archive.finalize().catch(reject);
+  });
 }
+
+export type { CreateAppOptions } from "./types";
 
 export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiveBookmark }: CreateAppOptions) {
   const archiveFn: ArchiveBookmark = archiveBookmark || (async () => { throw new Error("Archive not configured"); });
@@ -245,6 +255,12 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
   function zipFileHash(): string {
     const files = listSnapshotFiles(snapshotDir);
     const parts = files.map((f) => `${f}:${fs.statSync(path.join(snapshotDir, f)).mtimeMs}`);
+    for (const extra of ["meta.json", "overrides.json"]) {
+      const extraPath = path.join(snapshotDir, extra);
+      if (fs.existsSync(extraPath)) {
+        parts.push(`${extra}:${fs.statSync(extraPath).mtimeMs}`);
+      }
+    }
     return parts.join("|");
   }
 
@@ -289,7 +305,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
     res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!, basePath, linkdingDisplayUrl));
   });
 
-  router.get("/download.zip", (req: Request, res: Response) => {
+  router.get("/download.zip", async (req: Request, res: Response) => {
     const ip = safeIp(req.ip);
     const hash = zipFileHash();
     if (zipCache && zipCache.hash === hash) {
@@ -299,27 +315,16 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
     }
     const files = listSnapshotFiles(snapshotDir);
     logger.info(`${ip} - ZIP download requested (${files.length} files)`);
-    res.type("application/zip").attachment(zipFilename());
-    const archive = new ZipArchive({ zlib: { level: 9 } });
-      archive.on("error", (err: Error) => {
-        logger.error(`ZIP archive error: ${err.message}`);
-        if (!res.headersSent) {
-          res.status(500).json({ error: { message: "ZIP creation failed" } });
-        }
-      });
-    const pass = new PassThrough();
-    const chunks: Buffer[] = [];
-    pass.on("data", (chunk: Buffer) => chunks.push(chunk));
-    pass.on("end", () => {
-      zipCache = { buffer: Buffer.concat(chunks), hash, count: files.length };
-    });
-    archive.pipe(pass);
-    pass.pipe(res);
-    archive.append(renderIndex(snapshotDir, tag, false, basePath, linkdingDisplayUrl), { name: "index.html" });
-    for (const f of files) {
-      archive.file(path.join(snapshotDir, f), { name: f });
+    let buffer: Buffer;
+    try {
+      buffer = await buildZip(snapshotDir, files, renderIndex(snapshotDir, tag, false, basePath, linkdingDisplayUrl));
+    } catch (err) {
+      logger.error(`ZIP archive error: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ error: { message: "ZIP creation failed" } });
+      return;
     }
-    archive.finalize();
+    zipCache = { buffer, hash, count: files.length };
+    res.type("application/zip").attachment(zipFilename()).send(buffer);
   });
 
   router.get("/sync", trustCheck, async (req: Request, res: Response) => {
@@ -427,93 +432,49 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
 
 function makeApiGet(base: string, token: string): ApiGet {
   const headers: Record<string, string> = token ? { Authorization: `Token ${token}` } : {};
-  const mod = base.startsWith("https") ? https : http;
-  return function apiGet(url: string): ReturnType<ApiGet> {
+  return async function apiGet(url: string): Promise<unknown> {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
-    return new Promise((resolve, reject) => {
-      const req = mod.get(fullUrl, { headers }, (res) => {
-        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-          let body = "";
-          res.on("data", (chunk: string) => (body += chunk));
-          res.on("end", () => reject(new Error(`HTTP ${res.statusCode} from ${url}`)));
-          return;
-        }
-        let data = "";
-        res.on("data", (chunk: string) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(new Error(`Invalid JSON from ${url}: ${e instanceof Error ? e.message : String(e)}`));
-          }
-        });
-      });
-      req.on("error", reject);
-      req.setTimeout(30000, () => {
-        req.destroy();
-        reject(new Error(`Request timeout: ${url}`));
-      });
-    });
+    const res = await fetch(fullUrl, { headers, signal: AbortSignal.timeout(30000) });
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error(`HTTP ${res.status} from ${url}`);
+    }
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error(`Invalid JSON from ${url}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 }
 
 function makeApiPost(base: string, token: string): (url: string) => Promise<void> {
   const headers: Record<string, string> = token ? { Authorization: `Token ${token}` } : {};
-  const mod = base.startsWith("https") ? https : http;
-  return function apiPost(url: string): Promise<void> {
+  return async function apiPost(url: string): Promise<void> {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
-    return new Promise((resolve, reject) => {
-      const req = mod.request(fullUrl, { method: "POST", headers }, (res) => {
-        res.resume();
-        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
-          return;
-        }
-        resolve();
-      });
-      req.on("error", reject);
-      req.setTimeout(30000, () => {
-        req.destroy();
-        reject(new Error(`Request timeout: ${url}`));
-      });
-      req.end();
-    });
+    const res = await fetch(fullUrl, { method: "POST", headers, signal: AbortSignal.timeout(30000) });
+    await res.body?.cancel();
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from ${url}`);
+    }
   };
 }
 
 function makeDownloadFile(base: string, token: string): DownloadFile {
   const headers: Record<string, string> = token ? { Authorization: `Token ${token}` } : {};
-  const mod = base.startsWith("https") ? https : http;
-  return function downloadFile(url: string, dest: string): Promise<void> {
+  return async function downloadFile(url: string, dest: string): Promise<void> {
     const fullUrl = url.startsWith("http") ? url : `${base}${url}`;
-    return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest);
-      const cleanup = (): void => {
-        try { fs.unlinkSync(dest); } catch (_) { /* ignore */ }
-      };
-      const req = mod.get(fullUrl, { headers }, (res) => {
-        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-          cleanup();
-          res.resume();
-          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
-          return;
-        }
-        res.on("error", (e: Error) => { cleanup(); reject(e); });
-        res.pipe(file);
-        file.on("finish", () => {
-          file.close(() => resolve());
-        });
-      });
-      req.on("error", (e: Error) => {
-        cleanup();
-        reject(e);
-      });
-      req.setTimeout(120000, () => {
-        req.destroy();
-        cleanup();
-        reject(new Error(`Request timeout: ${url}`));
-      });
-    });
+    const res = await fetch(fullUrl, { headers, signal: AbortSignal.timeout(120000) });
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error(`HTTP ${res.status} from ${url}`);
+    }
+    try {
+      await Bun.write(dest, res);
+    } catch (e) {
+      try { fs.unlinkSync(dest); } catch (_) { /* ignore */ }
+      throw e;
+    }
   };
 }
 
@@ -541,7 +502,15 @@ function main(): void {
   const apiPost = makeApiPost(base, token);
   const archiveBookmark: ArchiveBookmark = (bookmarkId) => apiPost(`${base}/api/bookmarks/${bookmarkId}/archive/`);
 
-  const syncFn: SyncFn = () => sync({ base, snapshotDir, apiGet, downloadFile, tag, log: logger, delay });
+  const syncFn: SyncFn = async () => {
+    const entries = await sync({ base, snapshotDir, apiGet, downloadFile, tag, log: logger, delay });
+    try {
+      await clean({ base, snapshotDir, apiGet, tag, log: logger });
+    } catch (e) {
+      logger.warn(`Clean failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return entries;
+  };
 
   if (syncOnStart) {
     logger.info("Sync triggered on startup");
@@ -563,8 +532,6 @@ function main(): void {
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-export { SyncLogEntry };
-
-if (require.main === module) {
+if (import.meta.main) {
   main();
 }

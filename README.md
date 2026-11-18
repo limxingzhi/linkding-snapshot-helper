@@ -11,7 +11,8 @@ Built for offline reading: tag bookmarks in Linkding, let this pull the snapshot
 ```bash
 cp .env.example .env
 # edit .env with your Linkding URL and API token
-npm start
+bun install
+bun start
 ```
 
 Open `http://localhost:8080` to browse your snapshots.
@@ -88,8 +89,8 @@ Overrides are only used for display/linking in the index; Linkding is never modi
 ## Requirements
 
 - A Linkding instance with the [SingleFile extension](https://github.com/gildas-lormeau/SingleFile) configured to upload snapshots
-- Node.js 18+
-- Install dependencies: `npm install`
+- Bun 1.2+
+- Install dependencies: `bun install`
 
 ## License
 

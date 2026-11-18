@@ -1,5 +1,5 @@
 import { sanitize } from "../sanitize";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 
 describe("sanitize", () => {
   it("returns the title unchanged when already safe", () => {

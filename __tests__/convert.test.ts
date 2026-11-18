@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { convert } from "../.agents/skills/html-to-txt/convert";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 
-const TMP = path.join(__dirname, "__fixtures__", "convert_tmp");
+const TMP = path.join(import.meta.dir, "__fixtures__", "convert_tmp");
 
 function html(content: string): string {
   return `<!DOCTYPE html><html><head><title>Article Title</title></head><body><article>${content}</article></body></html>`;

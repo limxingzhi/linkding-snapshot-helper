@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { sync, clean } from "../sync";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { sync, clean, isTransientError } from "../sync";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import type { ApiGet, DownloadFile, Logger, LinkdingBookmark, LinkdingAsset } from "../types";
 
 const silentLog: Logger = { info: () => {}, warn: () => {}, error: () => {}, toExternal: () => {} };
-const TMP = path.join(__dirname, "__fixtures__", "sync_tmp");
+const TMP = path.join(import.meta.dir, "__fixtures__", "sync_tmp");
 
 interface LinkdingState {
   bookmarks: LinkdingBookmark[];
@@ -247,6 +247,16 @@ describe("sync", () => {
 
     expect(calls).toBe(1);
     expect(log[0]).toMatchObject({ status: "error" });
+  });
+
+  it("treats aborted requests as transient errors", () => {
+    const timeout = new Error("The operation was aborted due to timeout");
+    timeout.name = "TimeoutError";
+    expect(isTransientError(timeout)).toBe(true);
+
+    const nested = new Error("fetch failed", { cause: timeout });
+    expect(isTransientError(nested)).toBe(true);
+    expect(isTransientError(new Error("HTTP 404 from url"))).toBe(false);
   });
 
   it("returns log of all operations", async () => {

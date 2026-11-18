@@ -20,12 +20,12 @@ Converts SingleFile HTML snapshots into clean `.txt` files suitable for e-reader
 - Frontmatter: `Title:`, `URL:`, `Tags:` from linkding metadata
 - Word-wraps at configurable column width (default 80)
 
-**Dependencies:** `@mozilla/readability`, `jsdom` (already in project devDependencies).
+**Dependencies:** `@mozilla/readability`, `jsdom` (already in project dependencies).
 
 ## Usage
 
 ```bash
-npx tsx convert.ts /path/to/file.html [options]
+bun convert.ts /path/to/file.html [options]
 ```
 
 Output: `/path/to/file.txt` (same name, `.txt` extension)
@@ -50,16 +50,16 @@ Output: `/path/to/file.txt` (same name, `.txt` extension)
 
 ```bash
 # Basic — converts file.html → file.txt
-npx tsx convert.ts ~/snapshots/economist-article.html
+bun convert.ts ~/snapshots/economist-article.html
 
 # Custom output path
-npx tsx convert.ts article.html --out ~/kindle/notes.txt
+bun convert.ts article.html --out ~/kindle/notes.txt
 
 # Wider lines
-npx tsx convert.ts article.html --width 120
+bun convert.ts article.html --width 120
 
 # No wrapping
-npx tsx convert.ts article.html --width 0
+bun convert.ts article.html --width 0
 ```
 
 ## Notes
