@@ -118,7 +118,6 @@ export interface SyncOptions {
   tag?: string;
   log: Logger;
   delay?: number;
-  skipTxt?: boolean;
   retries?: number;
   retryDelay?: number;
 }

@@ -53,7 +53,6 @@ export async function sync({
   tag = "Offline",
   log: logger,
   delay = 200,
-  skipTxt = false,
   retries = 2,
   retryDelay = 1000,
 }: SyncOptions): Promise<SyncLogEntry[]> {
@@ -166,50 +165,6 @@ export async function sync({
       const size = fs.statSync(filepath).size;
       logger.info(`[${i + 1}/${bookmarks.length}] OK: ${filename} (${size.toLocaleString()} bytes)`);
 
-      // Generate .txt alongside .html using the html-to-txt converter
-      const txtFilepath = filepath.replace(/\.html$/, ".txt");
-      if (fs.existsSync(txtFilepath)) {
-        fs.unlinkSync(txtFilepath);
-      }
-      if (!skipTxt) {
-        try {
-          let convertScript = path.resolve(import.meta.dir, ".agents/skills/html-to-txt/convert.ts");
-          if (!fs.existsSync(convertScript)) {
-            const cwdScript = path.resolve(process.cwd(), ".agents/skills/html-to-txt/convert.ts");
-            if (fs.existsSync(cwdScript)) convertScript = cwdScript;
-          }
-          if (fs.existsSync(convertScript)) {
-            const result = Bun.spawnSync({
-              cmd: [
-                process.execPath,
-                convertScript,
-                filepath,
-                "--out",
-                txtFilepath,
-                "--width",
-                "0",
-                "--title",
-                bm.title || safeTitle,
-                "--url",
-                bm.url || "",
-                "--tags",
-                (bm.tag_names || []).join(","),
-              ],
-              stdout: "pipe",
-              stderr: "pipe",
-              timeout: 30000,
-            });
-            if (result.exitCode !== 0) {
-              const stderr = result.stderr.toString().trim();
-              throw new Error(stderr || `converter exited with code ${result.exitCode}`);
-            }
-            const txtSize = fs.statSync(txtFilepath).size;
-            logger.info(`[${i + 1}/${bookmarks.length}] TXT: ${path.basename(txtFilepath)} (${(txtSize / 1024).toFixed(0)} KB)`);
-          }
-        } catch (e) {
-          logger.warn(`[${i + 1}/${bookmarks.length}] TXT conversion skipped for ${safeTitle}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
       log.push({
         status: "ok",
         title: safeTitle,
@@ -300,20 +255,13 @@ export async function clean({
   }
   const removed: string[] = [];
 
-  // Remove orphan .html files, and their .txt counterparts
+  // Remove orphan .html files
   for (const f of htmlFiles) {
     const match = f.match(/-(\d+)\.html$/);
     if (!match || !activeIds.has(match[1])) {
       fs.unlinkSync(path.join(snapshotDir, f));
       removed.push(f);
       logger.info(`CLEAN: removed ${f}`);
-      // Remove associated .txt
-      const txtF = f.replace(/\.html$/, ".txt");
-      if (allFiles.includes(txtF)) {
-        fs.unlinkSync(path.join(snapshotDir, txtF));
-        removed.push(txtF);
-        logger.info(`CLEAN: removed ${txtF}`);
-      }
     }
   }
 

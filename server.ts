@@ -103,7 +103,6 @@ const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includ
 
 function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string, linkdingDisplayUrl: string): string {
   const htmlFiles = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
-  const txtFiles = new Set(fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".txt")));
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta: MetaRecord = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
   const overridesPath = path.join(snapshotDir, "overrides.json");
@@ -117,8 +116,6 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
   }
   const rows = htmlFiles.map((f) => {
     const name = f.replace(/-\d+\.html$/, "");
-    const txtF = f.replace(/\.html$/, ".txt");
-    const hasTxt = txtFiles.has(txtF);
     const bm = meta[f];
     const bmLink = bm
       ? `<a href="${esc(linkdingDisplayUrl ? `${linkdingDisplayUrl}/bookmarks?details=${bm.id}` : bm.url)}" target="_blank" style="color:${Colors.green}">#${bm.id}</a>`
@@ -140,10 +137,7 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
       : isTrusted
         ? `<form method="POST" action="${esc(basePath)}/delete" style="display:inline"><input type="hidden" name="file" value="${esc(f)}"><button type="submit" class="del-btn" title="Delete snapshot&#10;Hold Alt/Option to skip confirmation" onclick="if(!event.altKey)return confirm('Delete ${jsStr(name)} — ${jsStr(f)}?')" style="background:none;border:none;color:${Colors.comment};cursor:pointer;font-size:14px;padding:2px 4px;line-height:1;">&times;</button></form>`
         : "";
-    const txtLink = hasTxt
-      ? `<a href="${esc(txtF)}" style="display:inline-block;margin-left:8px;font-size:11px;color:${Colors.comment};text-transform:uppercase;letter-spacing:0.5px;border:1px solid ${Colors.comment};border-radius:3px;padding:1px 6px">TXT</a>`
-      : "";
-    return `<tr class="${readClass}" style="border-bottom:1px solid ${Colors.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${firstCell}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${Colors.orange}">${esc(name)}</a>${txtLink}</td><td style="padding:6px 16px 6px 12px">${domainCell}</td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
+    return `<tr class="${readClass}" style="border-bottom:1px solid ${Colors.bgLight}"><td style="padding:6px 8px;text-align:center;width:32px">${firstCell}</td><td style="padding:6px 12px;font-family:'Fira Code',monospace;font-size:13px">${bmLink}</td><td style="padding:6px 16px 6px 12px"><a href="${esc(f)}" target="_blank" style="color:${Colors.orange}">${esc(name)}</a></td><td style="padding:6px 16px 6px 12px">${domainCell}</td><td style="padding:6px 16px 6px 12px">${tags}</td></tr>`;
   }).join("\n");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -266,7 +260,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
 
   function listSnapshotFiles(dir: string): string[] {
     const names = fs.readdirSync(dir);
-    return names.filter((f) => f.endsWith(".html") || f.endsWith(".txt")).sort();
+    return names.filter((f) => f.endsWith(".html")).sort();
   }
 
   function invalidateZipCache(): void {
@@ -294,7 +288,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
   });
 
   router.use((req: Request, res: Response, next: NextFunction): void => {
-    if (req.path.endsWith(".html") || req.path.endsWith(".txt")) {
+    if (req.path.endsWith(".html")) {
       express.static(snapshotDir)(req, res, next);
     } else {
       next();
@@ -361,12 +355,6 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
     const filePath = path.join(snapshotDir, file);
     if (!fs.existsSync(filePath)) { res.status(404).type("text/plain").send("File not found\n"); return; }
     fs.unlinkSync(filePath);
-    // Also remove the .txt counterpart if it exists
-    const txtPath = filePath.replace(/\.html$/, ".txt");
-    if (filePath !== txtPath && fs.existsSync(txtPath)) {
-      fs.unlinkSync(txtPath);
-      logger.info(`Deleted: ${path.basename(txtPath)}`);
-    }
     const metaPath = path.join(snapshotDir, "meta.json");
     if (fs.existsSync(metaPath)) {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
