@@ -9,6 +9,7 @@ const TMP = path.join(import.meta.dir, "__fixtures__", "sync_tmp");
 
 interface LinkdingState {
   bookmarks: LinkdingBookmark[];
+  archived: LinkdingBookmark[];
   assets: Record<number, LinkdingAsset[]>;
   downloads: Record<number, string>;
 }
@@ -19,6 +20,7 @@ beforeEach(() => {
   fs.mkdirSync(TMP, { recursive: true });
   linkding = {
     bookmarks: [],
+    archived: [],
     assets: {},
     downloads: {},
   };
@@ -31,6 +33,22 @@ afterEach(() => {
 function makeApi(base: string): ApiGet {
   return async function apiGet(url: string) {
     const bookmarksPath = `${base}/api/bookmarks/`;
+    const archivedPath = `${base}/api/bookmarks/archived/`;
+    if (url.startsWith(archivedPath)) {
+      const u = new URL(url);
+      const search = u.searchParams;
+      const offset = parseInt(search.get("offset") || "0", 10);
+      const limit = parseInt(search.get("limit") || "100", 10);
+      const slice = linkding.archived.slice(offset, offset + limit);
+      return {
+        results: slice,
+        next:
+          offset + limit < linkding.archived.length
+            ? `${archivedPath}?limit=${limit}&offset=${offset + limit}`
+            : null,
+        count: linkding.archived.length,
+      };
+    }
     if (url.startsWith(bookmarksPath) && !url.includes("/assets/")) {
       const u = new URL(url);
       const search = u.searchParams;
@@ -355,8 +373,9 @@ describe("sync", () => {
 describe("clean", () => {
   const base = "https://linkding.test";
 
-  function runClean(bookmarks?: LinkdingBookmark[]) {
+  function runClean(bookmarks?: LinkdingBookmark[], archived?: LinkdingBookmark[]) {
     linkding.bookmarks = bookmarks || [];
+    linkding.archived = archived || [];
     return clean({
       base,
       snapshotDir: TMP,
@@ -375,6 +394,39 @@ describe("clean", () => {
     expect(fs.existsSync(path.join(TMP, "Orphan-99.html"))).toBe(false);
     expect(fs.existsSync(path.join(TMP, "Active-1.html"))).toBe(true);
     expect(result.removed).toEqual(["Orphan-99.html"]);
+  });
+
+  it("keeps files for archived bookmarks", async () => {
+    fs.writeFileSync(path.join(TMP, "Archived-2.html"), "<html>archived</html>");
+    fs.writeFileSync(path.join(TMP, "Active-1.html"), "<html>active</html>");
+    const meta = {
+      "Active-1.html": { id: 1, tags: [], url: "http://example.com/1", unread: false },
+      "Archived-2.html": { id: 2, tags: [], url: "http://example.com/2", unread: false },
+    };
+    fs.writeFileSync(path.join(TMP, "meta.json"), JSON.stringify(meta));
+
+    const result = await runClean(
+      [{ id: 1, title: "Active", unread: false }],
+      [{ id: 2, title: "Archived", unread: false }],
+    );
+
+    expect(result.removed).toEqual([]);
+    expect(fs.existsSync(path.join(TMP, "Archived-2.html"))).toBe(true);
+    const updated = JSON.parse(fs.readFileSync(path.join(TMP, "meta.json"), "utf8"));
+    expect(updated["Archived-2.html"]).toBeDefined();
+  });
+
+  it("keeps a snapshot after archiving it and syncing", async () => {
+    const bookmark: LinkdingBookmark = { id: 1, title: "Page" };
+    await runSync([bookmark], { 1: [{ id: 10, asset_type: "snapshot" }] }, { 10: "content" });
+    expect(fs.existsSync(path.join(TMP, "Page-1.html"))).toBe(true);
+
+    // Archiving removes it from the regular list but keeps it in the archive.
+    linkding.bookmarks = [];
+    linkding.archived = [{ ...bookmark, unread: false }];
+    await clean({ base, snapshotDir: TMP, apiGet: makeApi(base), tag: "Offline", log: silentLog });
+
+    expect(fs.existsSync(path.join(TMP, "Page-1.html"))).toBe(true);
   });
 
   it("clean removes stale entries from meta.json", async () => {

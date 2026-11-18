@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sanitize } from "./sanitize";
 import type {
+  ApiGet,
   CleanOptions,
   LinkdingBookmark,
   MetaEntry,
@@ -218,20 +219,9 @@ function readMeta(snapshotDir: string): MetaRecord {
   return {};
 }
 
-export async function clean({
-  base,
-  snapshotDir,
-  apiGet,
-  tag = "Offline",
-  log: logger,
-}: CleanOptions): Promise<{ removed: string[] }> {
-  fs.mkdirSync(snapshotDir, { recursive: true });
-  const allFiles = fs.readdirSync(snapshotDir);
-  const htmlFiles = allFiles.filter((f) => f.endsWith(".html"));
-
+async function fetchAllBookmarks(apiGet: ApiGet, startUrl: string): Promise<LinkdingBookmark[]> {
   // Fetch all pages in parallel: the page count is known from the first response.
   const bookmarks: LinkdingBookmark[] = [];
-  const startUrl = `${base}/api/bookmarks/?q=%23${encodeURIComponent(tag)}&limit=100`;
   const first = BookmarkListResponseSchema.parse(await apiGet(startUrl));
   bookmarks.push(...first.results);
   const firstUrl = new URL(startUrl);
@@ -247,6 +237,28 @@ export async function clean({
   for (const page of rest) {
     bookmarks.push(...BookmarkListResponseSchema.parse(page).results);
   }
+  return bookmarks;
+}
+
+export async function clean({
+  base,
+  snapshotDir,
+  apiGet,
+  tag = "Offline",
+  log: logger,
+}: CleanOptions): Promise<{ removed: string[] }> {
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const allFiles = fs.readdirSync(snapshotDir);
+  const htmlFiles = allFiles.filter((f) => f.endsWith(".html"));
+
+  // Archived bookmarks are still linked to their local snapshot: the sync
+  // query no longer returns them, but archiving should not delete the copy.
+  const search = `?q=%23${encodeURIComponent(tag)}&limit=100`;
+  const [active, archived] = await Promise.all([
+    fetchAllBookmarks(apiGet, `${base}/api/bookmarks/${search}`),
+    fetchAllBookmarks(apiGet, `${base}/api/bookmarks/archived/${search}`),
+  ]);
+  const bookmarks = [...active, ...archived];
 
   const activeIds = new Set(bookmarks.map((bm) => String(bm.id)));
   const bookmarkMap: Record<string, LinkdingBookmark> = {};
