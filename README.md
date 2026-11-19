@@ -67,6 +67,7 @@ All config is via environment variables (set them in `.env`):
 | `PORT` | `8080` | Port to listen on |
 | `SYNC_ON_START` | `true` | Sync snapshots on startup |
 | `SNAPSHOT_DIR` | `/snapshots` | Directory to store snapshots |
+| `SNAPSHOT_CACHE_SECONDS` | `14400` | How long browsers may cache snapshot pages (`Cache-Control: max-age`), in seconds. Defaults to 4 hours; `0` disables caching |
 | `ADMIN_SUBNET` | (empty — allow all) | Comma-separated CIDR ranges trusted as admin (e.g. `100.64.0.0/10` for Tailscale). When unset, every IP is trusted; delete + sync are restricted to it when set. Localhost is always trusted |
 | `BASE_PATH` | (empty) | Serve the app under a path prefix, e.g. `BASE_PATH=/snapd` → `http://host:8080/snapd/` |
 | `LINKDING_DISPLAY_URL` | (empty) | Public URL for Linkding, used for the `#id` links in the index instead of the internal `LINKDING_URL` host. The link becomes `<display>/bookmarks?details=<id>` |

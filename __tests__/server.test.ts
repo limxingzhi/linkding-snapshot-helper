@@ -33,6 +33,33 @@ describe("Express server", () => {
     expect(res.text).toBe("<html>hello</html>");
   });
 
+  it("caches snapshot responses for four hours", async () => {
+    const res = await request(app).get("/test-page.html");
+    expect(res.headers["cache-control"]).toContain("public");
+    expect(res.headers["cache-control"]).toContain("max-age=14400");
+  });
+
+  it("reads snapshot cache time from SNAPSHOT_CACHE_SECONDS", async () => {
+    // createApp reads the env var, so set it before creating the instance.
+    process.env.SNAPSHOT_CACHE_SECONDS = "7200";
+    const customApp = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(customApp).get("/test-page.html");
+    expect(res.headers["cache-control"]).toContain("max-age=7200");
+
+    delete process.env.SNAPSHOT_CACHE_SECONDS;
+  });
+
+  it("falls back to four hours for invalid SNAPSHOT_CACHE_SECONDS", async () => {
+    process.env.SNAPSHOT_CACHE_SECONDS = "not-a-number";
+    const customApp = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(customApp).get("/test-page.html");
+    expect(res.headers["cache-control"]).toContain("max-age=14400");
+
+    delete process.env.SNAPSHOT_CACHE_SECONDS;
+  });
+
   it("includes security headers from helmet", async () => {
     const res = await request(app).get("/");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");

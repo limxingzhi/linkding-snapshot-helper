@@ -101,6 +101,18 @@ function normalizeBasePath(raw: string | undefined): string {
   return trimmed === "" ? "" : trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
+// Snapshot pages change rarely, so cache them client-side for four hours unless
+// SNAPSHOT_CACHE_SECONDS (in seconds) overrides the max-age.
+const DEFAULT_SNAPSHOT_CACHE_SECONDS = 4 * 60 * 60;
+
+function readSnapshotCacheSeconds(raw: string | undefined): number {
+  // Ignore missing, non-numeric, or negative values so a typo cannot produce
+  // an invalid Cache-Control header.
+  const trimmed = (raw ?? "").trim();
+  const value = Number(trimmed);
+  return trimmed !== "" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : DEFAULT_SNAPSHOT_CACHE_SECONDS;
+}
+
 const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includes(".."), { message: "Invalid filename" });
 
 function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string, linkdingDisplayUrl: string, version: string): string {
@@ -250,6 +262,9 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
   const basePath = normalizeBasePath(process.env.BASE_PATH);
   const linkdingDisplayUrl = (process.env.LINKDING_DISPLAY_URL || "").trim().replace(/\/+$/, "");
   const version = (process.env.APP_VERSION || "dev").trim() || "dev";
+  // Read the cache lifetime here so each app instance can be configured
+  // independently in tests and at startup.
+  const snapshotCacheSeconds = readSnapshotCacheSeconds(process.env.SNAPSHOT_CACHE_SECONDS);
   const router = express.Router();
   let syncing = false;
   let zipCache: ZipCache | null = null;
@@ -295,9 +310,12 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
     next();
   });
 
+  // express.static adds Cache-Control: public, max-age=<seconds> to snapshot
+  // responses. The extension gate below keeps meta.json from being served.
+  const serveSnapshot = express.static(snapshotDir, { maxAge: snapshotCacheSeconds * 1000 });
   router.use((req: Request, res: Response, next: NextFunction): void => {
     if (req.path.endsWith(".html")) {
-      express.static(snapshotDir)(req, res, next);
+      serveSnapshot(req, res, next);
     } else {
       next();
     }
