@@ -40,10 +40,13 @@ jobs:
           BRANCH=${{ github.ref_name }}
           if [ "$BRANCH" = "main" ]; then
             TAGS="${REPO}:latest,${REPO}:${DATE}"
+            VERSION="${DATE}"
           else
             TAGS="${REPO}:${BRANCH},${REPO}:${BRANCH}-${DATE}"
+            VERSION="${BRANCH}-${DATE}"
           fi
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build and push image
         uses: docker/build-push-action@v7
@@ -52,4 +55,5 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: ${{ steps.tags.outputs.tags }}
+          build-args: APP_VERSION=${{ steps.tags.outputs.version }}
           no-cache: true

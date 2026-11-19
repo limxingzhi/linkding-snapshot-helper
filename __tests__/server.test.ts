@@ -39,6 +39,17 @@ describe("Express server", () => {
     expect(res.headers["x-frame-options"]).toBeDefined();
   });
 
+  it("renders footer with version and repository link", async () => {
+    process.env.APP_VERSION = "1.2.3";
+    const app = createApp({ snapshotDir: FIXTURE_DIR, syncFn: async () => [], logger: silentLog });
+
+    const res = await request(app).get("/");
+    expect(res.text).toContain("https://github.com/limxingzhi/linkding-snapshot-helper");
+    expect(res.text).toContain("v1.2.3");
+
+    delete process.env.APP_VERSION;
+  });
+
   it("returns 404 for missing files", async () => {
     const res = await request(app).get("/nonexistent.html");
     expect(res.status).toBe(404);

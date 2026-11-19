@@ -10,6 +10,8 @@ import { createLogger } from "./logger";
 import type { SyncFn, ZipCache, ApiGet, DownloadFile, MetaRecord, ArchiveBookmark, CreateAppOptions } from "./types";
 import { z } from "zod";
 
+const REPO_URL = "https://github.com/limxingzhi/linkding-snapshot-helper";
+
 const Colors = {
   bg: "#272822",
   bgLight: "#3e3d32",
@@ -101,7 +103,7 @@ function normalizeBasePath(raw: string | undefined): string {
 
 const FileSchema = z.string().min(1).refine((v) => !v.includes("/") && !v.includes(".."), { message: "Invalid filename" });
 
-function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string, linkdingDisplayUrl: string): string {
+function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean, basePath: string, linkdingDisplayUrl: string, version: string): string {
   const htmlFiles = fs.readdirSync(snapshotDir).filter((f) => f.endsWith(".html")).sort();
   const metaPath = path.join(snapshotDir, "meta.json");
   const meta: MetaRecord = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, "utf8")) : {};
@@ -188,6 +190,11 @@ function renderIndex(snapshotDir: string, filterTag: string, isTrusted: boolean,
       </table>
     </div>
   </div>
+  <footer style="max-width:960px;margin:0 auto;padding:0 24px 32px;font-family:'Fira Code',monospace;font-size:12px;color:${Colors.comment}">
+    <a href="${REPO_URL}" target="_blank" style="color:${Colors.comment}">GitHub</a>
+    <span style="margin:0 8px">|</span>
+    <span>version: ${esc(version)}</span>
+  </footer>
   <script>
     let sortedOrderStateIsAsc = true;
     let currentCol = 1;
@@ -242,6 +249,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
   const app = express();
   const basePath = normalizeBasePath(process.env.BASE_PATH);
   const linkdingDisplayUrl = (process.env.LINKDING_DISPLAY_URL || "").trim().replace(/\/+$/, "");
+  const version = (process.env.APP_VERSION || "dev").trim() || "dev";
   const router = express.Router();
   let syncing = false;
   let zipCache: ZipCache | null = null;
@@ -296,7 +304,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
   });
 
   router.get("/", trustCheck, (req: Request, res: Response) => {
-    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!, basePath, linkdingDisplayUrl));
+    res.type("html").send(renderIndex(snapshotDir, tag, req.isTrusted!, basePath, linkdingDisplayUrl, version));
   });
 
   router.get("/download.zip", async (req: Request, res: Response) => {
@@ -311,7 +319,7 @@ export function createApp({ snapshotDir, syncFn, tag = "Offline", logger, archiv
     logger.info(`${ip} - ZIP download requested (${files.length} files)`);
     let buffer: Buffer;
     try {
-      buffer = await buildZip(snapshotDir, files, renderIndex(snapshotDir, tag, false, basePath, linkdingDisplayUrl));
+      buffer = await buildZip(snapshotDir, files, renderIndex(snapshotDir, tag, false, basePath, linkdingDisplayUrl, version));
     } catch (err) {
       logger.error(`ZIP archive error: ${err instanceof Error ? err.message : String(err)}`);
       res.status(500).json({ error: { message: "ZIP creation failed" } });

@@ -3,6 +3,8 @@
 FROM oven/bun:1-alpine
 
 ENV NODE_ENV=production
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 WORKDIR /app
 
 COPY package.json bun.lock ./
