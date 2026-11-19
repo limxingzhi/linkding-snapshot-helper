@@ -52,6 +52,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          target: deploy
           push: true
           platforms: linux/amd64
           tags: ${{ steps.tags.outputs.tags }}
